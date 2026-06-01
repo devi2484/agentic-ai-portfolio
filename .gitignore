@@ -1,0 +1,17 @@
+.env
+__pycache__/
+*.pyc
+*.txt
+*.json
+*.xlsx
+*.csv
+desktop.ini
+*.lnk
+AARAV/
+DEVANSHI/
+devanshiii/
+SIDTM 2025-26/
+SYMBIOSIS/
+Remit2Any Internship/
+AI_model/
+ai-research-tool/
