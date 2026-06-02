@@ -1,698 +1,198 @@
 import os
-import json
 import streamlit as st
-import feedparser
-
-from dotenv import load_dotenv
-from ddgs import DDGS
-
 from langchain_groq import ChatGroq
-from langchain_core.messages import (
-    HumanMessage,
-    SystemMessage
-)
+from duckduckgo_search import DDGS # Note: Standard import for DuckDuckGo Search
+from dotenv import load_dotenv
+from pydantic import BaseModel, Field
+from typing import List, Optional
 
-# =========================================================
-# CONFIG
-# =========================================================
-
+# ==========================================
+# 1. SETUP & CONFIGURATION
+# ==========================================
 load_dotenv()
+GROQ_KEY = os.getenv("GROQ_KEY") or st.secrets.get("GROQ_KEY", "")
 
-GROQ_KEY = (
-    os.getenv("GROQ_KEY")
-    or st.secrets.get("GROQ_KEY", "")
-)
+# Using llama-3.3-70b for the structured output as it is much more reliable for JSON
+llm = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
 
-if not GROQ_KEY:
-    st.error("Missing GROQ_KEY")
-    st.stop()
-
-# Fast + Cheap model
-fast_llm = ChatGroq(
-    api_key=GROQ_KEY,
-    model_name="llama-3.1-8b-instant",
-    temperature=0.2
-)
-
-# Better strategy model
-smart_llm = ChatGroq(
-    api_key=GROQ_KEY,
-    model_name="llama-3.3-70b-versatile",
-    temperature=0.2
-)
-
-# =========================================================
-# STREAMLIT UI
-# =========================================================
-
-st.set_page_config(
-    page_title="AI Market Intelligence Crew",
-    page_icon="📈",
-    layout="wide"
-)
-
-st.title("📈 AI Market Intelligence Crew")
-
-st.markdown("""
-### Multi-Agent Strategic Intelligence System
-
-**Pipeline**
-
-Research → Validation → Fact Filter → Competitive Intelligence → Strategic Analysis → Challenger Review → CEO Brief
-""")
-
+st.set_page_config(page_title="AI Market Intelligence Crew", page_icon="🔍", layout="wide")
+st.title("🔍 Corporate Market Intelligence Crew")
+st.markdown("**3 AI agents** — Goldman Sachs Researcher → BCG Auditor → McKinsey Strategist")
 st.divider()
 
-# =========================================================
-# SEARCH
-# =========================================================
+# ==========================================
+# 2. PYDANTIC SCHEMAS (JSON VALIDATION)
+# ==========================================
+class IntelligenceFact(BaseModel):
+    fact: str = Field(description="A specific, verifiable fact with numbers/dates.")
+    source_context: str = Field(description="Brief snippet of the raw search text where this was found.")
+    confidence_score: int = Field(description="Score 1-10 based on how explicitly it is stated in the text.")
+    strategic_implication: str = Field(description="Why this matters for the business model.")
 
-def ddg_search(query):
+class ResearchReport(BaseModel):
+    company: str
+    competitor_mentions: List[str] = Field(description="Names of competitors found in the research.")
+    facts: List[IntelligenceFact]
 
+class FactCheckResult(BaseModel):
+    original_fact: str
+    is_verified: bool = Field(description="True ONLY if the fact is explicitly backed by the raw search text.")
+    reasoning: str = Field(description="Explanation of why it passed or failed.")
+    corrected_fact: Optional[str] = Field(description="If false, provide the corrected fact based on text, or leave null.")
+
+class ChallengerReport(BaseModel):
+    verifications: List[FactCheckResult]
+
+class StrategicAction(BaseModel):
+    urgency: str = Field(description="HIGH, MEDIUM, or LOW")
+    recommended_action: str = Field(description="Specific, non-generic action step.")
+    expected_impact: str = Field(description="Quantifiable or strategic business impact.")
+
+class CEOBrief(BaseModel):
+    threat_level: str = Field(description="Overall threat assessment (e.g., SEVERE, MODERATE).")
+    competitive_intelligence: str = Field(description="Summary of market positioning vs competitors.")
+    key_insights: List[str] = Field(description="Core insights regarding unit economics, supply chain, or retail strategy.")
+    actions: List[StrategicAction]
+
+# ==========================================
+# 3. CORE FUNCTIONS & AGENTS
+# ==========================================
+def run_enhanced_search(company: str) -> str:
+    """Multi-query search for broader competitive intelligence."""
+    queries = [
+        f"{company} financial results unit economics 2025",
+        f"{company} market share competitors 2025",
+        f"{company} supply chain retail strategy recent news"
+    ]
     results = []
-
     try:
-
         with DDGS() as ddgs:
-
-            for r in ddgs.text(
-                query,
-                max_results=10
-            ):
-
-                title = r.get("title", "")
-                body = r.get("body", "")
-
-                results.append(
-                    f"TITLE: {title}\nSUMMARY: {body}"
-                )
-
+            for q in queries:
+                # Limit to 2 results per query to keep context window manageable
+                for r in ddgs.text(q, max_results=2):
+                    results.append(f"[{r.get('href', 'url')}] {r.get('title', '')}: {r.get('body', '')}")
     except Exception as e:
-
-        return f"DDGS ERROR: {e}"
-
-    return "\n\n".join(results)
-
-
-def google_news_search(query):
-
-    try:
-
-        rss_url = (
-            "https://news.google.com/rss/search?q="
-            + query.replace(" ", "+")
-        )
-
-        feed = feedparser.parse(rss_url)
-
-        results = []
-
-        for entry in feed.entries[:10]:
-
-            title = getattr(entry, "title", "")
-            summary = getattr(entry, "summary", "")
-
-            results.append(
-                f"TITLE: {title}\nSUMMARY: {summary}"
-            )
-
-        return "\n\n".join(results)
-
-    except Exception as e:
-
-        return f"GOOGLE NEWS ERROR: {e}"
-
-
-def combined_search(company):
-
-    ddg = ddg_search(
-        company + " financial results business strategy acquisitions"
-    )
-
-    news = google_news_search(company)
-
-    return f"""
-
-DUCKDUCKGO RESULTS
-==================
-
-{ddg}
-
-GOOGLE NEWS RESULTS
-===================
-
-{news}
-
-"""
-
-
-# =========================================================
-# HELPERS
-# =========================================================
-
-def safe_json_parse(text):
-
-    try:
-        return json.loads(text)
-
-    except Exception:
-
-        # Try extracting JSON block
-
-        try:
-
-            start = text.find("[")
-            end = text.rfind("]") + 1
-
-            cleaned = text[start:end]
-
-            return json.loads(cleaned)
-
-        except Exception:
-
-            return []
-
-
-def confidence_score(validated):
-
-    total = len(validated)
-
-    if total == 0:
-        return 0
-
-    verified = len([
-        x for x in validated
-        if x.get("status") == "VERIFIED"
-    ])
-
-    return round((verified / total) * 100)
-
-
-def filter_verified_facts(validated):
-
-    good = []
-
-    for fact in validated:
-
-        if fact.get("status") in [
-            "VERIFIED",
-            "LIKELY"
-        ]:
-
-            good.append(fact)
-
-    return good
-
-
-# =========================================================
-# RESEARCH AGENT
-# =========================================================
-
-def run_researcher(company):
-
-    context = combined_search(company)
-
-    response = fast_llm.invoke([
-
-        SystemMessage(content="""
-You are a Goldman Sachs research analyst.
-
-Return ONLY valid JSON.
-
-Format:
-
-[
-  {
-    "fact":"...",
-    "source":"...",
-    "date":"...",
-    "confidence":"HIGH"
-  }
-]
-
-Rules:
-
-- Exactly 6 facts.
-- Must contain numbers or dates.
-- Must be business relevant.
-- Must come ONLY from search results.
-- Prefer facts appearing in multiple sources.
-- No markdown.
-- No commentary.
-"""),
-
-        HumanMessage(content=context)
-
-    ])
-
-    return safe_json_parse(response.content)
-
-
-# =========================================================
-# VALIDATION AGENT
-# =========================================================
-
-def run_validator(facts):
-
-    response = fast_llm.invoke([
-
-        SystemMessage(content="""
-You are a forensic fact checker.
-
-Return ONLY valid JSON.
-
-Format:
-
-[
- {
-   "fact":"...",
-   "status":"VERIFIED",
-   "confidence":"HIGH",
-   "reason":"..."
- }
-]
-
-Rules:
-
-- VERIFIED = strongly supported.
-- LIKELY = probably correct.
-- QUESTIONABLE = weak or unsupported.
-- Be strict.
-- No markdown.
-"""),
-
-        HumanMessage(content=json.dumps(facts))
-
-    ])
-
-    return safe_json_parse(response.content)
-
-
-# =========================================================
-# COMPETITIVE INTELLIGENCE
-# =========================================================
-
-def run_competitive_intel(company, facts):
-
-    response = smart_llm.invoke([
-
-        SystemMessage(content="""
-You are a market intelligence expert.
-
-Analyze:
-
-1. Main competitors
-2. Who is winning
-3. Why they are winning
-4. Which moat is strongest
-5. Which moat is weakening
-6. Strategic pressure points
-
-Avoid generic statements.
-"""),
-
-        HumanMessage(content=f"""
-COMPANY:
-{company}
-
-FACTS:
-{json.dumps(facts, indent=2)}
-""")
-
-    ])
-
-    return response.content
-
-
-# =========================================================
-# STRATEGIC ANALYSIS
-# =========================================================
-
-def run_analysis(
-    company,
-    facts,
-    competitive_intel
-):
-
-    response = smart_llm.invoke([
-
-        SystemMessage(content="""
-You are a BCG Senior Partner.
-
-Analyze:
-
-1. What changed?
-2. Growth drivers
-3. Strategic risks
-4. Capital allocation implications
-5. Future bets
-6. Competitive positioning
-
-Rules:
-
-- Avoid generic business advice.
-- Use evidence.
-- Be specific.
-- Think like a real strategist.
-"""),
-
-        HumanMessage(content=f"""
-COMPANY:
-{company}
-
-FACTS:
-{json.dumps(facts, indent=2)}
-
-COMPETITIVE INTELLIGENCE:
-{competitive_intel}
-""")
-
-    ])
-
-    return response.content
-
-
-# =========================================================
-# CHALLENGER AGENT
-# =========================================================
-
-def run_challenger(company, analysis):
-
-    response = smart_llm.invoke([
-
-        SystemMessage(content="""
-You are a Bain Partner.
-
-Challenge the analysis.
-
-Identify:
-
-1. Weak assumptions
-2. Missing evidence
-3. Risks
-4. Alternative interpretations
-5. Recommendations likely to fail
-
-Be skeptical.
-"""),
-
-        HumanMessage(content=f"""
-COMPANY:
-{company}
-
-ANALYSIS:
-{analysis}
-""")
-
-    ])
-
-    return response.content
-
-
-# =========================================================
-# CEO BRIEF AGENT
-# =========================================================
-
-def run_ceo_brief(
-    company,
-    facts,
-    competitive_intel,
-    analysis,
-    challenge
-):
-
-    response = smart_llm.invoke([
-
-        SystemMessage(content="""
-You are a Fortune 500 CEO.
-
-You have:
-- 12 months
-- $10B capital
-- shareholder pressure
-
-Create a strategic CEO briefing.
-
-Output:
-
-1. COMPANY HEALTH
-2. WHAT CHANGED
-3. TOP STRATEGIC RISKS
-4. BIGGEST OPPORTUNITIES
-5. STOP
-6. START
-7. DOUBLE DOWN
-8. KEY STRATEGIC MOVES
-9. CEO TAKEAWAY
-
-Rules:
-
-- Generic advice is forbidden.
-- Every recommendation must contain:
-  Evidence
-  Action
-  Expected Impact
-  Risk
-  Timeline
-- Think like an elite operator.
-"""),
-
-        HumanMessage(content=f"""
-COMPANY:
-{company}
-
-FACTS:
-{json.dumps(facts, indent=2)}
-
-COMPETITIVE INTEL:
-{competitive_intel}
-
-ANALYSIS:
-{analysis}
-
-CHALLENGER REVIEW:
-{challenge}
-""")
-
-    ])
-
-    return response.content
-
-
-# =========================================================
-# UI
-# =========================================================
-
-company = st.text_input(
-    "Company Name",
-    placeholder="Tesla, Nvidia, Zomato, Reliance..."
-)
-
-if st.button(
-    "Deploy Intelligence Crew",
-    type="primary"
-):
-
+        st.error(f"Search API Error: {e}")
+    
+    return "\n".join(results)
+
+def run_researcher(company: str, raw_search_context: str) -> ResearchReport:
+    """Extracts raw facts and structures them into JSON."""
+    structured_llm = llm.with_structured_output(ResearchReport)
+    prompt = f"""
+    You are a Goldman Sachs research analyst. Extract precise intelligence for {company} from the provided raw search context.
+    Focus on hard numbers, dates, and direct competitor mentions. 
+    Do NOT invent information. If a metric is not in the text, do not guess.
+    
+    Raw Search Context:
+    {raw_search_context}
+    """
+    return structured_llm.invoke(prompt)
+
+def run_challenger(facts: List[IntelligenceFact], raw_search_context: str) -> ChallengerReport:
+    """Audits the researcher's output against the raw text to catch hallucinations."""
+    structured_llm = llm.with_structured_output(ChallengerReport)
+    
+    fact_strings = "\n".join([f"- {f.fact}" for f in facts])
+    
+    prompt = f"""
+    You are a ruthless BCG compliance auditor. Check if the following facts are explicitly supported by the raw context.
+    If a fact is an assumption or hallucination, mark it unverified and provide a correction based ONLY on the text.
+    
+    Facts to check: 
+    {fact_strings}
+    
+    Raw Context:
+    {raw_search_context}
+    """
+    return structured_llm.invoke(prompt)
+
+def run_strategist(company: str, verified_facts: List[FactCheckResult]) -> CEOBrief:
+    """Drafts the final executive brief based only on verified data."""
+    structured_llm = llm.with_structured_output(CEOBrief)
+    
+    # Filter for only verified or successfully corrected facts
+    valid_data = [f.original_fact if f.is_verified else f.corrected_fact for f in verified_facts if f.is_verified or f.corrected_fact]
+    
+    prompt = f"""
+    You are a McKinsey Partner. Based STRICTLY on the verified data below, draft a CEO Brief for {company}.
+    Focus heavily on unit economics, supply chain vulnerabilities, and retail psychology/positioning.
+    Ensure recommendations are highly specific (e.g., pivot specific product lines, alter logistics routes), NOT generic (e.g., 'increase marketing').
+    
+    Verified Data:
+    {valid_data}
+    """
+    return structured_llm.invoke(prompt)
+
+# ==========================================
+# 4. STREAMLIT UI
+# ==========================================
+company = st.text_input("Company Name:", placeholder="e.g. Zomato, Reliance, Nykaa...")
+
+if st.button("Deploy Corporate Crew", type="primary"):
     if not company:
-
-        st.error("Enter a company name.")
-
+        st.error("Please enter a company name.")
     else:
+        with st.status(f"Conducting Enterprise Analysis on {company}...", expanded=True) as status:
+            st.write("📡 Running targeted market search...")
+            raw_context = run_enhanced_search(company)
+            
+            if not raw_context:
+                st.error("Could not retrieve search data. The search API might be rate-limited.")
+                st.stop()
+                
+            st.write("📊 Goldman Sachs Researcher structuring intelligence...")
+            research_data = run_researcher(company, raw_context)
+            
+            st.write("⚖️ BCG Auditor verifying facts (Anti-Hallucination)...")
+            audit_data = run_challenger(research_data.facts, raw_context)
+            
+            st.write("📋 McKinsey Strategist drafting CEO Brief...")
+            final_brief = run_strategist(company, audit_data.verifications)
+            
+            status.update(label="Mission complete!", state="complete")
 
-        with st.status(
-            f"Analyzing {company}...",
-            expanded=True
-        ) as status:
+        # --- UI DISPLAY ---
+        
+        # 1. Fact Check & Verification Tab
+        st.subheader("🛡️ Data Verification & Filtering")
+        cols = st.columns(2)
+        verified_count = sum(1 for f in audit_data.verifications if f.is_verified)
+        st.caption(f"Passed {verified_count}/{len(audit_data.verifications)} facts through the Challenger Agent.")
+        
+        for fc in audit_data.verifications:
+            if fc.is_verified:
+                st.success(f"**✅ Verified:** {fc.original_fact} \n\n*Reasoning: {fc.reasoning}*")
+            else:
+                st.error(f"**❌ Hallucination Flagged:** {fc.original_fact} \n\n*Correction:* {fc.corrected_fact}")
 
-            # Research
-
-            st.write(
-                "🔍 Research agent gathering intelligence..."
-            )
-
-            research = run_researcher(company)
-
-            # Validation
-
-            st.write(
-                "✅ Validation agent checking facts..."
-            )
-
-            validation = run_validator(research)
-
-            # Filter
-
-            verified_facts = filter_verified_facts(
-                validation
-            )
-
-            # Confidence
-
-            score = confidence_score(validation)
-
-            # Competitive Intel
-
-            st.write(
-                "⚔️ Competitive intelligence agent running..."
-            )
-
-            intel = run_competitive_intel(
-                company,
-                verified_facts
-            )
-
-            # Analysis
-
-            st.write(
-                "📊 BCG strategy analysis..."
-            )
-
-            analysis = run_analysis(
-                company,
-                verified_facts,
-                intel
-            )
-
-            # Challenger
-
-            st.write(
-                "🧠 Challenger agent stress-testing strategy..."
-            )
-
-            challenge = run_challenger(
-                company,
-                analysis
-            )
-
-            # CEO Brief
-
-            st.write(
-                "🎯 CEO briefing agent preparing report..."
-            )
-
-            brief = run_ceo_brief(
-                company,
-                verified_facts,
-                intel,
-                analysis,
-                challenge
-            )
-
-            status.update(
-                label="Mission Complete",
-                state="complete"
-            )
-
-        # =================================================
-        # DASHBOARD
-        # =================================================
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            st.metric(
-                "Report Confidence",
-                f"{score}%"
-            )
-
-        with col2:
-
-            st.metric(
-                "Verified Facts",
-                len(verified_facts)
-            )
-
+        # 2. Executive Brief
         st.divider()
+        st.header(f"Executive Strategic Brief — {company.upper()}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"**🔴 Threat Level:** {final_brief.threat_level}")
+        with col2:
+            st.markdown(f"**⚔️ Competitors Monitored:** {', '.join(research_data.competitor_mentions)}")
+            
+        st.markdown("### Market Positioning")
+        st.info(final_brief.competitive_intelligence)
+        
+        st.markdown("### Key Strategic Insights")
+        for insight in final_brief.key_insights:
+            st.markdown(f"- {insight}")
+            
+        st.markdown("### 🎯 Recommended Strategic Actions")
+        for action in final_brief.actions:
+            urgency_color = "🔴" if action.urgency.upper() == "HIGH" else "🟡" if action.urgency.upper() == "MEDIUM" else "🟢"
+            with st.expander(f"{urgency_color} [{action.urgency}] {action.recommended_action}"):
+                st.markdown(f"**Expected Business Impact:**")
+                st.write(action.expected_impact)
 
-        # =================================================
-        # FINAL BRIEF
-        # =================================================
+        # 3. Export
+        st.divider()
+        raw_export = f"RAW CONTEXT:\n{raw_context}\n\nSTRATEGIC BRIEF:\n{final_brief.model_dump_json(indent=2)}"
+        st.download_button("Download Full Data Report (JSON/TXT)", data=raw_export, file_name=f"{company}_intelligence.txt", mime="text/plain")
 
-        st.subheader(
-            f"CEO Strategic Brief — {company}"
-        )
-
-        st.markdown(brief)
-
-        # =================================================
-        # EXPANDERS
-        # =================================================
-
-        with st.expander("Research Facts"):
-
-            st.json(research)
-
-        with st.expander("Fact Validation"):
-
-            st.json(validation)
-
-        with st.expander("Verified Facts Only"):
-
-            st.json(verified_facts)
-
-        with st.expander("Competitive Intelligence"):
-
-            st.write(intel)
-
-        with st.expander("Strategic Analysis"):
-
-            st.write(analysis)
-
-        with st.expander("Challenger Review"):
-
-            st.write(challenge)
-
-        # =================================================
-        # DOWNLOAD
-        # =================================================
-
-        full_report = f"""
-CEO STRATEGIC BRIEF
-===================
-
-{brief}
-
-RESEARCH FACTS
-==============
-
-{json.dumps(research, indent=2)}
-
-VALIDATION
-==========
-
-{json.dumps(validation, indent=2)}
-
-VERIFIED FACTS
-==============
-
-{json.dumps(verified_facts, indent=2)}
-
-COMPETITIVE INTELLIGENCE
-========================
-
-{intel}
-
-STRATEGIC ANALYSIS
-==================
-
-{analysis}
-
-CHALLENGER REVIEW
-=================
-
-{challenge}
-"""
-
-        st.download_button(
-            "Download Full Report",
-            data=full_report,
-            file_name=f"{company}_ceo_strategy_report.txt",
-            mime="text/plain"
-        )
-
-st.divider()
-
-st.caption(
-    "AI Market Intelligence Crew · Multi-Agent Strategic Intelligence System"
-)
+st.caption("Advanced AI Crew: JSON Validation · Fact Checking · Competitive Intelligence")
