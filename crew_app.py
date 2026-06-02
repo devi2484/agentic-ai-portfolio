@@ -100,7 +100,6 @@ def run_enhanced_search(company: str) -> str:
 
 # --- Research Agent ---
 class IntelligenceFact(BaseModel):
-    # FIX: Changed Literal to str to prevent Groq API enum parsing crashes
     category: str = Field(
         description="Must be exactly one of: Profitability, Growth, Competitive Threat, Competitive Advantage, Capital Allocation, Strategic Shift"
     )
@@ -119,10 +118,14 @@ class IntelligenceFact(BaseModel):
     strategic_impact: int = Field(description="1-10. Only include if >= 8.")
     source_url: str = Field(description="Exact source URL.")
     source_trust: str = Field(description="Copy exactly from TRUST label in raw context: HIGH TRUST, MEDIUM TRUST, or LOW TRUST.")
+    
+    # FIX: Added 'default' to prevent 400 validation crashes if the LLM skips these keys
     date_signal: str = Field(
+        default="Undated",
         description="Date from the source e.g. 'Q1 2025'. If absent write 'Undated'."
     )
     competitor_context: str = Field(
+        default="No benchmark available",
         description="Named competitor comparison. If none exists write 'No benchmark available'."
     )
 
@@ -151,8 +154,7 @@ class ValidatedFact(BaseModel):
     confidence: int  # Calculated programmatically
 
 # ==========================================
-# ENUM NORMALIZATION — fixes 8b model drift
-# Converts any near-match to the canonical value, preventing 400 errors.
+# ENUM NORMALIZATION
 # ==========================================
 SIGNAL_TYPES = [
     "Emerging Threat", "Emerging Opportunity", "Strategic Inflection",
@@ -165,7 +167,6 @@ THREAT_TYPES     = ["Fastest Growing", "Largest Threat", "Weakening Moat",
 FRAMEWORKS       = ["STOP", "START", "DOUBLE DOWN"]
 
 def _closest(value: str, options: list, default: str) -> str:
-    """Return exact match, case-insensitive match, or default."""
     v = value.strip()
     if v in options:
         return v
@@ -173,7 +174,6 @@ def _closest(value: str, options: list, default: str) -> str:
     for o in options:
         if o.lower() == v_lower:
             return o
-    # partial match — pick first option that contains the value or vice versa
     for o in options:
         if v_lower in o.lower() or o.lower() in v_lower:
             return o
@@ -181,13 +181,9 @@ def _closest(value: str, options: list, default: str) -> str:
 
 # --- Signal Detector (runs ONLY on validated facts) ---
 class StrategicSignal(BaseModel):
-    signal_type: str = Field(
-        description=f"Must be one of: {', '.join(SIGNAL_TYPES)}"
-    )
+    signal_type: str = Field(description=f"Must be one of: {', '.join(SIGNAL_TYPES)}")
     signal: str = Field(description="The specific inflection point observed.")
-    urgency: str = Field(
-        description=f"Must be one of: {', '.join(URGENCY_VALUES)}"
-    )
+    urgency: str = Field(description=f"Must be one of: {', '.join(URGENCY_VALUES)}")
     evidence_fact: str = Field(description="The exact validated fact that triggered this signal.")
 
 class SignalReport(BaseModel):
@@ -202,9 +198,7 @@ def normalize_signals(report: SignalReport) -> SignalReport:
 # --- Competitor Intelligence ---
 class CompetitorIntel(BaseModel):
     competitor_name: str
-    threat_type: str = Field(
-        description=f"Must be one of: {', '.join(THREAT_TYPES)}"
-    )
+    threat_type: str = Field(description=f"Must be one of: {', '.join(THREAT_TYPES)}")
     threat_summary: str = Field(description="Specific move or metric making them a threat.")
     advantage_summary: str = Field(description="Where the target company still has an edge.")
     recommended_response: str = Field(
@@ -248,43 +242,23 @@ class StrategicAction(BaseModel):
 
 # --- Board Brief ---
 class CEOBrief(BaseModel):
-    company_health_score: int = Field(
-        description="0-100 composite: profitability + growth trajectory + competitive position."
-    )
+    company_health_score: int = Field(description="0-100 composite: profitability + growth trajectory + competitive position.")
     report_confidence: int = Field(description="0-100 based on validated fact quality and source trust.")
-    narrative_what_changed: str = Field(
-        description="Specific recent shift in market, unit economics, or competitive position — with evidence."
-    )
+    narrative_what_changed: str = Field(description="Specific recent shift in market, unit economics, or competitive position — with evidence.")
     narrative_why_now: str = Field(description="The specific catalyst demanding action now, not in 6 months.")
     narrative_primary_move: str = Field(description="Single most important strategic pivot — hyper-specific.")
     biggest_opportunity: str = Field(description="Highest-upside move supported by evidence.")
     biggest_risk: str = Field(description="Most dangerous unaddressed threat if left alone.")
     do_not_do: str = Field(description="Most tempting but strategically wrong move given current evidence.")
-    board_message: str = Field(
-        description="3-sentence executive summary: urgency + evidence-backed insight + call to action."
-    )
-    prioritized_actions: List[StrategicAction] = Field(
-        description="Exactly 3 actions ranked by strategic impact, highest first."
-    )
+    board_message: str = Field(description="3-sentence executive summary: urgency + evidence-backed insight + call to action.")
+    prioritized_actions: List[StrategicAction] = Field(description="Exactly 3 actions ranked by strategic impact, highest first.")
 
 # ==========================================
 # 4. PIPELINE — CORRECT ORDER
-#
-# Search
-# ↓
-# Research Agent
-# ↓
-# Hard-Gate Validation (programmatic — no LLM)
-# ↓  [only verified_facts proceed past this point]
-# Competitor Intelligence
-# ↓
-# Signal Detector  ← runs ONLY on validated facts
-# ↓
-# Strategist
 # ==========================================
 
 def run_researcher(company: str, raw_context: str) -> ResearchReport:
-    """Goldman Sachs Research Analyst — extracts strategic signals, not trivia. Uses 70b for reasoning depth."""
+    """Goldman Sachs Research Analyst — extracts strategic signals, not trivia. Uses 8b for reasoning depth."""
     structured_llm = llm_heavy.with_structured_output(ResearchReport)
     prompt = f"""You are a Goldman Sachs Research Analyst preparing a fact pack for a Managing Director.
 
@@ -309,12 +283,12 @@ HARD REJECT LIST:
 
 For source_trust: copy EXACTLY from the TRUST label in the raw context (HIGH TRUST / MEDIUM TRUST / LOW TRUST).
 For financials: exact numbers if present. If absent — qualitative language only. NEVER invent figures.
-For dates: facts from last 18 months only. Write "Undated" if no date found.
 
 CRITICAL JSON FORMATTING RULES:
 1. Do NOT escape single quotes (\'). (e.g., write "Company's", not "Company\'s"). This creates invalid JSON.
 2. Escape all line breaks as '\\n'.
 3. Always return valid, strictly formatted JSON.
+4. IMPORTANT: You MUST include every key from the schema in your JSON (especially 'competitor_context' and 'date_signal'). Do not skip them.
 
 Raw Search Context:
 {raw_context}"""
@@ -322,26 +296,17 @@ Raw Search Context:
 
 
 def run_hard_gate_validation(facts: List[IntelligenceFact]) -> List[ValidatedFact]:
-    """
-    CRITICAL RULE #1 & #4: Programmatic hard gate — no LLM involvement.
-    Confidence calculated from formula, not invented.
-    Only facts passing ALL criteria proceed downstream.
-    """
+    """Programmatic hard gate — no LLM involvement."""
     verified = []
     for f in facts:
-        # Hard reject on LLM scores below threshold
         if f.board_relevance < 8 or f.strategic_impact < 8:
             continue
-        # Hard reject low trust sources
         trust_key = f.source_trust.split("(")[0].strip()
         if trust_key == "LOW TRUST":
             continue
-        # Programmatic confidence — formula from spec
         confidence = calculate_confidence(f.source_trust, f.board_relevance, f.strategic_impact)
-        # Hard reject below confidence threshold
         if confidence < 70:
             continue
-        # Undated facts from unclassified sources get an extra penalty
         if "Undated" in f.date_signal and trust_key != "HIGH TRUST":
             continue
         verified.append(ValidatedFact(
@@ -386,10 +351,7 @@ Raw Search Context:
 
 
 def run_signal_detector(company: str, verified_facts: List[ValidatedFact]) -> SignalReport:
-    """
-    CRITICAL RULE #2: Signals generated ONLY from validated facts.
-    Uses 8b model — classification task, not deep reasoning.
-    """
+    """Uses 8b model — classification task, not deep reasoning."""
     structured_llm = llm_fast.with_structured_output(SignalReport)
     fact_text = "\n".join([
         f"[{f.category} | {f.source_trust} | {f.date_signal}] {f.fact} | Why it matters: {f.why_it_matters}"
@@ -416,9 +378,7 @@ Validated Facts:
 
 def run_strategist(company: str, verified_facts: List[ValidatedFact],
                    signals: List[StrategicSignal], competitors: List[CompetitorIntel]) -> CEOBrief:
-    """
-    CRITICAL RULE #3 & #4. Uses 70b for board-level reasoning quality.
-    """
+    """Uses 8b for board-level reasoning quality."""
     structured_llm = llm_heavy.with_structured_output(CEOBrief)
 
     if not verified_facts:
@@ -499,7 +459,7 @@ if st.button("Run Strategic Analysis", type="primary"):
             st.write("📊 Goldman Sachs Researcher — extracting strategic signals...")
             research_data = run_researcher(company, raw_context[:3000])
 
-            # STEP 3 — Hard-Gate Validation (programmatic, no LLM call, no sleep needed)
+            # STEP 3 — Hard-Gate Validation
             st.write("🔒 Hard-Gate Validation — programmatic confidence scoring...")
             verified_facts = run_hard_gate_validation(research_data.facts)
             st.write(f"   → {len(research_data.facts)} facts extracted · {len(verified_facts)} passed hard gate")
@@ -509,19 +469,19 @@ if st.button("Run Strategic Analysis", type="primary"):
 
             time.sleep(4)
 
-            # STEP 4 — Competitor Intelligence (independent of validation, uses raw context)
+            # STEP 4 — Competitor Intelligence
             st.write("🎯 Competitor Intelligence — mapping named threats and advantages...")
             competitor_data = run_competitor_intel(company, raw_context[:2000])
 
             time.sleep(4)
 
-            # STEP 5 — Signal Detector (runs ONLY on verified_facts)
+            # STEP 5 — Signal Detector
             st.write("🔭 Signal Detector — identifying inflection points from validated facts only...")
             signal_data = run_signal_detector(company, verified_facts)
 
             time.sleep(4)
 
-            # STEP 6 — Strategist (receives only verified_facts)
+            # STEP 6 — Strategist
             st.write("📋 McKinsey Strategist — synthesizing board brief from verified evidence...")
             final_brief = run_strategist(
                 company,
@@ -536,7 +496,6 @@ if st.button("Run Strategic Analysis", type="primary"):
         # DISPLAY
         # ==========================================
 
-        # --- Pipeline Transparency ---
         st.subheader("🛡️ Intelligence Pipeline & Verification Logs")
         total_extracted = len(research_data.facts)
         passed_gate = len(verified_facts)
@@ -596,7 +555,6 @@ if st.button("Run Strategic Analysis", type="primary"):
                 for c in competitor_data.competitors:
                     st.warning(f"**[{c.threat_type}] {c.competitor_name}:** {c.threat_summary}")
 
-        # --- Executive Brief Header ---
         st.divider()
         col1, col2, col3 = st.columns([3, 1, 1])
         with col1:
@@ -606,19 +564,16 @@ if st.button("Run Strategic Analysis", type="primary"):
         with col3:
             st.metric("Report Confidence", f"{final_brief.report_confidence}%")
 
-        # --- Board Message ---
         st.markdown("### 📢 Board Message")
         with st.container(border=True):
             st.markdown(f"*{final_brief.board_message}*")
 
-        # --- Strategic Narrative ---
         st.markdown("### The Strategic Narrative")
         with st.container(border=True):
             st.markdown(f"**📉 What Changed:** {final_brief.narrative_what_changed}")
             st.markdown(f"**⏳ Why Now (Catalyst):** {final_brief.narrative_why_now}")
             st.markdown(f"**🎯 Primary Move:** {final_brief.narrative_primary_move}")
 
-        # --- Opportunity / Risk / Do Not Do ---
         c1, c2, c3 = st.columns(3)
         with c1:
             with st.container(border=True):
@@ -633,7 +588,6 @@ if st.button("Run Strategic Analysis", type="primary"):
                 st.markdown("**🚫 Do NOT Do**")
                 st.warning(final_brief.do_not_do)
 
-        # --- Competitor Benchmarks ---
         if competitor_data.competitors:
             st.markdown("### 🏆 Competitor Benchmarks")
             for c in competitor_data.competitors:
@@ -648,7 +602,6 @@ if st.button("Run Strategic Analysis", type="primary"):
                         st.success(c.advantage_summary)
                     st.markdown(f"**Counter-Move:** {c.recommended_response}")
 
-        # --- Prioritized Actions ---
         st.markdown("### Prioritized Strategic Directives")
         for i, action in enumerate(final_brief.prioritized_actions, 1):
             icon = "🔴" if action.framework == "STOP" else "🟢" if action.framework == "START" else "🔥"
@@ -668,3 +621,28 @@ if st.button("Run Strategic Analysis", type="primary"):
                     st.markdown("**5. Expected Impact**")
                     st.success(action.expected_impact)
                     st.markdown("**6. Risk**")
+                    st.error(action.risk)
+                    st.caption(f"Action Confidence: {action.confidence}/100")
+
+        st.divider()
+        export_data = {
+            "company": company,
+            "health_score": final_brief.company_health_score,
+            "report_confidence": final_brief.report_confidence,
+            "pipeline_stats": {
+                "facts_extracted": total_extracted,
+                "passed_hard_gate": passed_gate,
+                "gate_pass_rate_pct": gate_rate,
+                "signals_detected": len(signal_data.signals),
+            },
+            "verified_facts": [vf.model_dump() for vf in verified_facts],
+            "board_brief": final_brief.model_dump(),
+            "signals": [s.model_dump() for s in signal_data.signals],
+            "competitor_intel": [c.model_dump() for c in competitor_data.competitors],
+        }
+        st.download_button(
+            "Download Full Intelligence Package (JSON)",
+            data=json.dumps(export_data, indent=2),
+            file_name=f"{company}_board_brief.json",
+            mime="application/json"
+        )
