@@ -4,7 +4,7 @@ from langchain_groq import ChatGroq
 from ddgs import DDGS
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from typing import List, Literal, Optional
+from typing import List
 from urllib.parse import urlparse
 
 # ==========================================
@@ -16,8 +16,8 @@ GROQ_KEY = os.getenv("GROQ_KEY") or st.secrets.get("GROQ_KEY", "")
 # 70b model for strict JSON adherence and deep analytical reasoning
 llm = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
 
-st.set_page_config(page_title="AI Intelligence Engine", page_icon="♟️", layout="wide")
-st.title("♟️ Strategic Intelligence Engine")
+st.set_page_config(page_title="Business Intelligence Engine", page_icon="⚡", layout="wide")
+st.title("⚡ Business Intelligence Engine")
 st.markdown("**Consulting-Grade Pipeline** · Competitor Benchmarking · Implication Layer · Action Prioritization")
 st.divider()
 
@@ -63,12 +63,12 @@ def run_enhanced_search(company: str) -> str:
     return "\n".join(results)
 
 # ==========================================
-# 3. PYDANTIC SCHEMAS (JSON VALIDATION)
+# 3. PYDANTIC SCHEMAS (BULLETPROOF FOR GROQ)
 # ==========================================
 class IntelligenceFact(BaseModel):
-    category: Literal["Revenue", "Profit", "Competitive Benchmark", "Product", "Strategic", "Capital Allocation"]
+    category: str = Field(description="Must be exactly one of: Revenue, Profit, Competitive Benchmark, Product, Strategic, Capital Allocation")
     fact: str = Field(description="Specific, verifiable fact. Must include numbers/dates. Ignore older than 18 months.")
-    competitor_context: Optional[str] = Field(description="How this fact compares to a direct competitor (if available).")
+    competitor_context: str = Field(description="How this fact compares to a direct competitor. If no competitor data is present, output 'N/A'.")
     url: str = Field(description="The source URL")
     relevance_score: int = Field(description="1-10 score. 1=Trivia, 10=Board-level strategic importance.")
     source_trust: str = Field(description="Trust level provided in the raw context.")
@@ -87,7 +87,7 @@ class ChallengerReport(BaseModel):
     verifications: List[FactCheckResult]
 
 class StrategicAction(BaseModel):
-    framework: Literal["STOP", "START", "DOUBLE DOWN"]
+    framework: str = Field(description="Must be exactly one of: STOP, START, DOUBLE DOWN")
     evidence: str = Field(description="The specific verified fact driving this recommendation.")
     implication: str = Field(description="The 'So What?'. Why this fact fundamentally changes the strategic landscape.")
     action: str = Field(description="Hyper-specific operational directive. Generic advice like 'review strategy' is forbidden. Name specific markets, product lines, or supply chain nodes.")
