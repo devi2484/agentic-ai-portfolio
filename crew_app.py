@@ -4,7 +4,8 @@ from langchain_groq import ChatGroq
 from ddgs import DDGS
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Literal, Optional
+from urllib.parse import urlparse
 
 # ==========================================
 # 1. SETUP & CONFIGURATION
@@ -12,92 +13,122 @@ from typing import List, Optional
 load_dotenv()
 GROQ_KEY = os.getenv("GROQ_KEY") or st.secrets.get("GROQ_KEY", "")
 
-# Using llama-3.3-70b for the structured output as it is much more reliable for JSON
+# Using 70b for complex reasoning and strict JSON adherence
 llm = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
 
-st.set_page_config(page_title="AI Market Intelligence Crew", page_icon="🔍", layout="wide")
-st.title("🔍 Corporate Market Intelligence Crew")
-st.markdown("**3 AI agents** — Goldman Sachs Researcher → BCG Auditor → McKinsey Strategist")
+st.set_page_config(page_title="AI Market Intelligence Crew", page_icon="📈", layout="wide")
+st.title("📈 Enterprise Intelligence Engine")
+st.markdown("**Data-Driven Strategy** · Trust Scoring · Relevance Filtering · Action Prioritization")
 st.divider()
 
 # ==========================================
-# 2. PYDANTIC SCHEMAS (JSON VALIDATION)
+# 2. TRUST SCORING & SEARCH
 # ==========================================
-class IntelligenceFact(BaseModel):
-    fact: str = Field(description="A specific, verifiable fact with numbers/dates.")
-    source_context: str = Field(description="Brief snippet of the raw search text where this was found.")
-    confidence_score: int = Field(description="Score 1-10 based on how explicitly it is stated in the text.")
-    strategic_implication: str = Field(description="Why this matters for the business model.")
+HIGH_TRUST = ["reuters.com", "bloomberg.com", "cnbc.com", "wsj.com", "ft.com", "sec.gov", "techcrunch.com", "forbes.com"]
+LOW_TRUST = ["linkedin.com", "reddit.com", "quora.com", "wikipedia.org", "medium.com"]
 
-class ResearchReport(BaseModel):
-    company: str
-    competitor_mentions: List[str] = Field(description="Names of competitors found in the research.")
-    facts: List[IntelligenceFact]
+def evaluate_trust(url: str) -> str:
+    domain = urlparse(url).netloc.lower()
+    if any(ht in domain for ht in HIGH_TRUST):
+        return "HIGH TRUST (Tier 1 Publisher/Primary Source)"
+    if any(lt in domain for lt in LOW_TRUST):
+        return "LOW TRUST (UGC/Social Media - Verify Carefully)"
+    return "MEDIUM TRUST"
 
-class FactCheckResult(BaseModel):
-    original_fact: str
-    is_verified: bool = Field(description="True ONLY if the fact is explicitly backed by the raw search text.")
-    reasoning: str = Field(description="Explanation of why it passed or failed.")
-    corrected_fact: Optional[str] = Field(description="If false, provide the corrected fact based on text, or leave null.")
-
-class ChallengerReport(BaseModel):
-    verifications: List[FactCheckResult]
-
-class StrategicAction(BaseModel):
-    urgency: str = Field(description="HIGH, MEDIUM, or LOW")
-    recommended_action: str = Field(description="Specific, non-generic action step.")
-    expected_impact: str = Field(description="Quantifiable or strategic business impact.")
-
-class CEOBrief(BaseModel):
-    threat_level: str = Field(description="Overall threat assessment (e.g., SEVERE, MODERATE).")
-    competitive_intelligence: str = Field(description="Summary of market positioning vs competitors.")
-    key_insights: List[str] = Field(description="Core insights regarding unit economics, supply chain, or retail strategy.")
-    actions: List[StrategicAction]
-
-# ==========================================
-# 3. CORE FUNCTIONS & AGENTS
-# ==========================================
 def run_enhanced_search(company: str) -> str:
-    """Multi-query search for broader competitive intelligence."""
+    """Multi-query search returning URLs, dates, and trust scores."""
     queries = [
-        f"{company} financial results unit economics 2025",
-        f"{company} market share competitors 2025",
-        f"{company} supply chain retail strategy recent news"
+        f"{company} recent earnings revenue profit 2025",
+        f"{company} market share vs competitors 2025",
+        f"{company} strategic acquisitions capital allocation",
+        f"{company} supply chain retail strategy issues"
     ]
+    
     results = []
     try:
         with DDGS() as ddgs:
             for q in queries:
-                # Limit to 2 results per query to keep context window manageable
-                for r in ddgs.text(q, max_results=2):
-                    results.append(f"[{r.get('href', 'url')}] {r.get('title', '')}: {r.get('body', '')}")
+                for r in ddgs.text(q, max_results=2, timelimit="y"): # time awareness builtin
+                    url = r.get('href', '')
+                    trust = evaluate_trust(url)
+                    results.append(
+                        f"SOURCE: {url}\n"
+                        f"TRUST RATING: {trust}\n"
+                        f"CONTENT: {r.get('title', '')} - {r.get('body', '')}\n"
+                        f"{'-'*40}"
+                    )
     except Exception as e:
         st.error(f"Search API Error: {e}")
     
     return "\n".join(results)
 
+# ==========================================
+# 3. PYDANTIC SCHEMAS (JSON VALIDATION)
+# ==========================================
+class IntelligenceFact(BaseModel):
+    category: Literal["Revenue", "Profit", "Competitive", "Product", "Strategic", "Capital Allocation"]
+    fact: str = Field(description="Specific, verifiable fact with numbers/dates. Ignore older than 18 months.")
+    url: str = Field(description="The source URL")
+    relevance_score: int = Field(description="1-10 score. 1=Trivia, 10=Board-level strategic importance.")
+    source_trust: str = Field(description="Trust level provided in the raw context.")
+
+class ResearchReport(BaseModel):
+    company: str
+    facts: List[IntelligenceFact]
+
+class FactCheckResult(BaseModel):
+    original_fact: str
+    relevance_score: int
+    is_verified: bool = Field(description="True ONLY if explicitly backed by the raw search text.")
+    confidence_score: int = Field(description="0-100 based on source trust and text clarity.")
+    reasoning: str = Field(description="Why it passed/failed verification.")
+
+class ChallengerReport(BaseModel):
+    verifications: List[FactCheckResult]
+
+class StrategicAction(BaseModel):
+    framework: Literal["STOP", "START", "DOUBLE DOWN"]
+    evidence: str = Field(description="The specific verified fact driving this recommendation.")
+    why_it_matters: str = Field(description="Strategic implication for unit economics, retail positioning, or supply chain.")
+    action: str = Field(description="Highly specific operational action. Generic advice is forbidden.")
+    expected_impact: str = Field(description="Quantifiable business impact.")
+    risk: str = Field(description="Primary execution risk or black swan vulnerability.")
+
+class CEOBrief(BaseModel):
+    report_confidence: int = Field(description="0-100 score based on overall data quality and verification.")
+    strategic_narrative: str = Field(description="What changed? Why now? What should management do?")
+    prioritized_actions: List[StrategicAction] = Field(description="Exactly 3 top actions ranked by ROI/Impact.", max_length=3, min_length=3)
+
+# ==========================================
+# 4. CORE AGENTS
+# ==========================================
 def run_researcher(company: str, raw_search_context: str) -> ResearchReport:
-    """Extracts raw facts and structures them into JSON."""
+    """Extracts facts, categorizes them, and scores them for CEO relevance."""
     structured_llm = llm.with_structured_output(ResearchReport)
     prompt = f"""
-    You are a Goldman Sachs research analyst. Extract precise intelligence for {company} from the provided raw search context.
-    Focus on hard numbers, dates, and direct competitor mentions. 
-    Do NOT invent information. If a metric is not in the text, do not guess.
+    You are a Goldman Sachs research analyst. Extract precise intelligence for {company}.
     
-    Raw Search Context:
+    RULES:
+    1. Find exactly ONE fact for each category if possible: Revenue, Profit, Competitive, Product, Strategic, Capital Allocation.
+    2. Score relevance strictly. 10 = existential threat/massive opportunity. 2 = minor PR update.
+    3. Ignore anything older than 24 months.
+    
+    Context:
     {raw_search_context}
     """
     return structured_llm.invoke(prompt)
 
 def run_challenger(facts: List[IntelligenceFact], raw_search_context: str) -> ChallengerReport:
-    """Audits the researcher's output against the raw text to catch hallucinations."""
+    """Audits facts, filters low relevance, and assigns confidence scores."""
     structured_llm = llm.with_structured_output(ChallengerReport)
     
-    fact_strings = "\n".join([f"- {f.fact}" for f in facts])
+    # PRIORITY 1: Pre-filter low relevance facts before validation
+    high_relevance_facts = [f for f in facts if f.relevance_score >= 8]
+    fact_strings = "\n".join([f"[{f.category}] (Relevance {f.relevance_score}/10) | {f.source_trust}: {f.fact}" for f in high_relevance_facts])
     
     prompt = f"""
-    You are a ruthless BCG compliance auditor. Check if the following facts are explicitly supported by the raw context.
-    If a fact is an assumption or hallucination, mark it unverified and provide a correction based ONLY on the text.
+    You are a BCG compliance auditor. Verify the following highly-relevant facts against the raw context.
+    Assign a confidence score (0-100). Penalize heavily if the source is LOW TRUST or evidence is weak.
     
     Facts to check: 
     {fact_strings}
@@ -108,91 +139,105 @@ def run_challenger(facts: List[IntelligenceFact], raw_search_context: str) -> Ch
     return structured_llm.invoke(prompt)
 
 def run_strategist(company: str, verified_facts: List[FactCheckResult]) -> CEOBrief:
-    """Drafts the final executive brief based only on verified data."""
+    """Drafts the final prioritized brief based on evidence."""
     structured_llm = llm.with_structured_output(CEOBrief)
     
-    # Filter for only verified or successfully corrected facts
-    valid_data = [f.original_fact if f.is_verified else f.corrected_fact for f in verified_facts if f.is_verified or f.corrected_fact]
+    valid_data = [f.original_fact for f in verified_facts if f.is_verified and f.confidence_score >= 70]
     
     prompt = f"""
-    You are a McKinsey Partner. Based STRICTLY on the verified data below, draft a CEO Brief for {company}.
-    Focus heavily on unit economics, supply chain vulnerabilities, and retail psychology/positioning.
-    Ensure recommendations are highly specific (e.g., pivot specific product lines, alter logistics routes), NOT generic (e.g., 'increase marketing').
+    You are a McKinsey Partner advising the CEO of {company}. 
+    Based ONLY on the verified evidence below, draft a strategic brief.
     
-    Verified Data:
+    RULES:
+    1. Choose ONLY the 3 most critical actions. Rank by Impact, Cost, and Time-to-value.
+    2. Use the STOP / START / DOUBLE DOWN framework.
+    3. No generic advice ("improve marketing"). Be hyper-specific about operations, positioning, or unit economics.
+    
+    Verified Evidence:
     {valid_data}
     """
     return structured_llm.invoke(prompt)
 
 # ==========================================
-# 4. STREAMLIT UI
+# 5. STREAMLIT UI
 # ==========================================
-company = st.text_input("Company Name:", placeholder="e.g. Zomato, Reliance, Nykaa...")
+company = st.text_input("Target Company:", placeholder="e.g. Zomato, Reliance, Tesla...")
 
-if st.button("Deploy Corporate Crew", type="primary"):
+if st.button("Deploy Intelligence Engine", type="primary"):
     if not company:
         st.error("Please enter a company name.")
     else:
-        with st.status(f"Conducting Enterprise Analysis on {company}...", expanded=True) as status:
-            st.write("📡 Running targeted market search...")
+        with st.status(f"Compiling Enterprise Intelligence on {company}...", expanded=True) as status:
+            st.write("📡 Executing targeted multi-query search & trust scoring...")
             raw_context = run_enhanced_search(company)
             
             if not raw_context:
-                st.error("Could not retrieve search data. The search API might be rate-limited.")
+                st.error("Search API failed to return data.")
                 st.stop()
                 
-            st.write("📊 Goldman Sachs Researcher structuring intelligence...")
+            st.write("📊 Extracting, categorizing, and scoring strategic relevance...")
             research_data = run_researcher(company, raw_context)
             
-            st.write("⚖️ BCG Auditor verifying facts (Anti-Hallucination)...")
+            st.write("⚖️ Filtering trivia & auditing sources (Anti-Hallucination)...")
             audit_data = run_challenger(research_data.facts, raw_context)
             
-            st.write("📋 McKinsey Strategist drafting CEO Brief...")
+            st.write("📋 Drafting Prioritized CEO Brief...")
             final_brief = run_strategist(company, audit_data.verifications)
             
-            status.update(label="Mission complete!", state="complete")
+            status.update(label="Analysis Complete", state="complete")
 
         # --- UI DISPLAY ---
         
-        # 1. Fact Check & Verification Tab
-        st.subheader("🛡️ Data Verification & Filtering")
-        cols = st.columns(2)
-        verified_count = sum(1 for f in audit_data.verifications if f.is_verified)
-        st.caption(f"Passed {verified_count}/{len(audit_data.verifications)} facts through the Challenger Agent.")
+        # 1. Fact Pipeline Transparency
+        st.subheader("🛡️ Data Pipeline & Filtering")
+        total_extracted = len(research_data.facts)
+        high_rel = len([f for f in research_data.facts if f.relevance_score >= 8])
+        passed_audit = sum(1 for f in audit_data.verifications if f.is_verified and f.confidence_score >= 70)
         
-        for fc in audit_data.verifications:
-            if fc.is_verified:
-                st.success(f"**✅ Verified:** {fc.original_fact} \n\n*Reasoning: {fc.reasoning}*")
-            else:
-                st.error(f"**❌ Hallucination Flagged:** {fc.original_fact} \n\n*Correction:* {fc.corrected_fact}")
+        st.caption(f"Extracted: {total_extracted} → High Relevance (>=8/10): {high_rel} → Verified & High Trust: {passed_audit}")
+        
+        with st.expander("View Data Verification Logs"):
+            for fc in audit_data.verifications:
+                if fc.is_verified and fc.confidence_score >= 70:
+                    st.success(f"**[{fc.confidence_score}% Confidence]** {fc.original_fact}")
+                else:
+                    st.error(f"**Rejected/Low Confidence ({fc.confidence_score}%):** {fc.original_fact} \n*Reason: {fc.reasoning}*")
 
         # 2. Executive Brief
         st.divider()
-        st.header(f"Executive Strategic Brief — {company.upper()}")
-        
-        col1, col2 = st.columns(2)
+        col1, col2 = st.columns([3, 1])
         with col1:
-            st.markdown(f"**🔴 Threat Level:** {final_brief.threat_level}")
+            st.header(f"Strategic Brief — {company.upper()}")
         with col2:
-            st.markdown(f"**⚔️ Competitors Monitored:** {', '.join(research_data.competitor_mentions)}")
+            st.metric(label="Overall Report Confidence", value=f"{final_brief.report_confidence}%")
             
-        st.markdown("### Market Positioning")
-        st.info(final_brief.competitive_intelligence)
+        st.markdown("### The Strategic Narrative")
+        st.info(final_brief.strategic_narrative)
         
-        st.markdown("### Key Strategic Insights")
-        for insight in final_brief.key_insights:
-            st.markdown(f"- {insight}")
+        st.markdown("### 🎯 Top 3 Prioritized Actions")
+        for action in final_brief.prioritized_actions:
+            # Color coding the framework
+            color = "🔴" if action.framework == "STOP" else "🟢" if action.framework == "START" else "🔥"
             
-        st.markdown("### 🎯 Recommended Strategic Actions")
-        for action in final_brief.actions:
-            urgency_color = "🔴" if action.urgency.upper() == "HIGH" else "🟡" if action.urgency.upper() == "MEDIUM" else "🟢"
-            with st.expander(f"{urgency_color} [{action.urgency}] {action.recommended_action}"):
-                st.markdown(f"**Expected Business Impact:**")
-                st.write(action.expected_impact)
+            with st.container(border=True):
+                st.markdown(f"#### {color} **{action.framework}**: {action.action}")
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("**Evidence & Implication**")
+                    st.write(f"*{action.evidence}*")
+                    st.caption(f"**Why it matters:** {action.why_it_matters}")
+                with c2:
+                    st.markdown("**Impact & Risk**")
+                    st.write(f"📈 **Expected Impact:** {action.expected_impact}")
+                    st.write(f"⚠️ **Risk:** {action.risk}")
 
         # 3. Export
         st.divider()
-        raw_export = f"RAW CONTEXT:\n{raw_context}\n\nSTRATEGIC BRIEF:\n{final_brief.model_dump_json(indent=2)}"
-        st.download_button("Download Full Data Report (JSON/TXT)", data=raw_export, file_name=f"{company}_intelligence.txt", mime="text/plain")
-
-st.caption("Advanced AI Crew: JSON Validation · Fact Checking · Competitive Intelligence")
+        st.download_button(
+            "Download Strategy JSON", 
+            data=final_brief.model_dump_json(indent=2), 
+            file_name=f"{company}_strategy.json", 
+            mime="application/json"
+        )
+st.caption("v2.0 Architecture · Relevance Filtering · Stop/Start/Double Down Framework")
