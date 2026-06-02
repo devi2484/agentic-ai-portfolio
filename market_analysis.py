@@ -99,14 +99,14 @@ class ChallengerReport(BaseModel):
     verifications: List[FactCheckResult]
 
 class ConsultantReport(BaseModel):
-    # Using markdown strings for complex sections prevents Groq from throwing 400 validation errors on nested arrays
-    phase_1_industry: str = Field(description="Markdown text with bullet points. Cover TAM/SAM/SOM estimates, Megatrends, and Barriers to Entry.")
-    phase_2_target: str = Field(description="Markdown text with bullet points. Cover Demographics, Psychographics, Needs & Pain Points, and Buying Habits.")
-    phase_3_competitive: str = Field(description="Markdown text. Include a Markdown TABLE comparing 2-3 direct and 1-2 indirect competitors. Cover SWOT, Market Share, and Value Prop.")
-    phase_4_strategy: str = Field(description="Markdown text with bullet points. Cover Product structure, Pricing strategy (with justification), Place (distribution), and Promotion channels.")
-    phase_5_financials: str = Field(description="Markdown text with bullet points. Cover Cost Structure (fixed/variable), Target Margins, Sales Forecast drivers, and Break-Even levers.")
-    porters_five_forces: str = Field(description="Markdown text analyzing the 5 forces based on the data.")
-    five_cs_analysis: str = Field(description="Markdown text summarizing Company, Collaborators, Customers, Competitors, Context.")
+    # Added strict instructions to escape newlines to prevent Groq JSON crashes
+    phase_1_industry: str = Field(description="Markdown text with bullet points. Cover TAM/SAM/SOM estimates, Megatrends, and Barriers to Entry. CRITICAL: Escape newlines as '\\n'.")
+    phase_2_target: str = Field(description="Markdown text with bullet points. Cover Demographics, Psychographics, Needs & Pain Points, and Buying Habits. CRITICAL: Escape newlines as '\\n'.")
+    phase_3_competitive: str = Field(description="Markdown text. Include a Markdown TABLE comparing 2-3 direct and 1-2 indirect competitors. Cover SWOT, Market Share, and Value Prop. CRITICAL: Escape newlines as '\\n'.")
+    phase_4_strategy: str = Field(description="Markdown text with bullet points. Cover Product structure, Pricing strategy (with justification), Place (distribution), and Promotion channels. CRITICAL: Escape newlines as '\\n'.")
+    phase_5_financials: str = Field(description="Markdown text with bullet points. Cover Cost Structure (fixed/variable), Target Margins, Sales Forecast drivers, and Break-Even levers. CRITICAL: Escape newlines as '\\n'.")
+    porters_five_forces: str = Field(description="Markdown text analyzing the 5 forces based on the data. CRITICAL: Escape newlines as '\\n'.")
+    five_cs_analysis: str = Field(description="Markdown text summarizing Company, Collaborators, Customers, Competitors, Context. CRITICAL: Escape newlines as '\\n'.")
 
 # ==========================================
 # 4. CORE AGENTS
