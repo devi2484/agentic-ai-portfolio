@@ -97,7 +97,7 @@ class StrategicAction(BaseModel):
 class CEOBrief(BaseModel):
     report_confidence: int = Field(description="0-100 score based on overall data quality and verification.")
     strategic_narrative: str = Field(description="What changed? Why now? What should management do?")
-    prioritized_actions: List[StrategicAction] = Field(description="Exactly 3 top actions ranked by ROI/Impact.", max_length=3, min_length=3)
+    prioritized_actions: List[StrategicAction] = Field(description="Exactly 3 top actions ranked by ROI/Impact.")
 
 # ==========================================
 # 4. CORE AGENTS
@@ -144,14 +144,19 @@ def run_strategist(company: str, verified_facts: List[FactCheckResult]) -> CEOBr
     
     valid_data = [f.original_fact for f in verified_facts if f.is_verified and f.confidence_score >= 70]
     
+    # SAFEGUARD: If no facts survived, feed it a controlled failure state
+    if not valid_data:
+        valid_data = ["No verified, high-trust data was found in recent searches. Cannot form evidence-based strategy."]
+    
     prompt = f"""
     You are a McKinsey Partner advising the CEO of {company}. 
     Based ONLY on the verified evidence below, draft a strategic brief.
     
     RULES:
-    1. Choose ONLY the 3 most critical actions. Rank by Impact, Cost, and Time-to-value.
+    1. You MUST provide exactly 3 prioritized actions. Rank by Impact, Cost, and Time-to-value.
     2. Use the STOP / START / DOUBLE DOWN framework.
     3. No generic advice ("improve marketing"). Be hyper-specific about operations, positioning, or unit economics.
+    4. If the evidence states 'No verified data', advise the CEO that market intelligence is currently insufficient and recommend an internal data audit as the primary action.
     
     Verified Evidence:
     {valid_data}
