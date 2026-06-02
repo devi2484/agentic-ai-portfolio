@@ -1,4 +1,5 @@
 import os
+import time
 import streamlit as st
 from langchain_groq import ChatGroq
 from ddgs import DDGS
@@ -376,14 +377,13 @@ Raw Search Context:
     return structured_llm.invoke(prompt)
 
 
-def run_validator(facts: List[IntelligenceFact], raw_search_context: str) -> ValidationReport:
+def run_validator(facts: List[IntelligenceFact]) -> ValidationReport:
     """
-    BCG Compliance Auditor persona.
-    5-stage validation: recency, source quality, strategic relevance, factual support, board relevance.
+    BCG Compliance Auditor. Validates purely from extracted fact metadata —
+    no raw context re-send to keep token usage low.
     """
     structured_llm = llm.with_structured_output(ValidationReport)
 
-    # Pre-filter: only pass facts that meet the minimum bar
     candidate_facts = [f for f in facts if f.board_relevance >= 8 and f.strategic_impact >= 8]
     fact_strings = "\n".join([
         f"FACT: {f.fact}\n"
@@ -393,31 +393,19 @@ def run_validator(facts: List[IntelligenceFact], raw_search_context: str) -> Val
         for f in candidate_facts
     ])
 
-    prompt = f"""
-You are a BCG Senior Partner running a compliance audit on intelligence facts.
-Your job is to protect the CEO from acting on bad data.
-
-Run each fact through this 5-stage filter:
-1. RECENCY CHECK: Is there a date signal? Is it within 18 months? (Fail if undated and unverifiable)
-2. SOURCE QUALITY: What is the trust level? Deduct 40 points for LOW TRUST, 20 for MEDIUM TRUST.
-3. STRATEGIC RELEVANCE: Does this fact directly affect capital allocation or competitive position?
-4. FACTUAL SUPPORT: Is this fact explicitly present in the raw context, or is it inferred/invented?
-5. BOARD RELEVANCE: Would a board member ask a follow-up question about this fact?
+    prompt = f"""You are a BCG compliance auditor. Score each fact and decide keep=True/False.
 
 CONFIDENCE SCORING (start at 100, deduct):
 - LOW TRUST source: -40
 - MEDIUM TRUST source: -10
-- Undated fact: -20
-- Estimation not backed by data: -15
-- Fact not directly found in raw context: -30
+- "Undated" in date field: -20
+- Estimation with no data backing: -15
+- board_relevance or strategic_impact below 8: auto-reject
 
-Set keep=False if confidence < 70 OR if the fact fails stages 1, 3, or 4.
+Set keep=False if confidence < 70.
 
-Facts to audit:
+Facts:
 {fact_strings}
-
-Raw Context (ground truth):
-{raw_search_context}
 """
     return structured_llm.invoke(prompt)
 
@@ -506,17 +494,21 @@ if st.button("Run Strategic Analysis", type="primary"):
                 st.stop()
 
             st.write("📊 Goldman Sachs Researcher — extracting strategic signals...")
-            research_data = run_researcher(company, raw_context)
+            research_data = run_researcher(company, raw_context[:4000])
 
+            time.sleep(4)
             st.write("🔭 Signal Detector — identifying inflection points...")
             signal_data = run_signal_detector(company, research_data.facts)
 
+            time.sleep(4)
             st.write("🎯 Competitor Intelligence — mapping threats and advantages...")
-            competitor_data = run_competitor_intel(company, raw_context)
+            competitor_data = run_competitor_intel(company, raw_context[:3000])
 
+            time.sleep(4)
             st.write("⚖️ BCG Auditor — 5-stage fact validation...")
-            validation_data = run_validator(research_data.facts, raw_context)
+            validation_data = run_validator(research_data.facts)
 
+            time.sleep(4)
             st.write("📋 McKinsey Strategist — synthesizing board brief...")
             final_brief = run_strategist(
                 company,
