@@ -1,7 +1,9 @@
 streamlit
+streamlit
 groq
 langchain
 langchain-groq
 python-dotenv
 crewai
 crewai-tools
+ddgs
