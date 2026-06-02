@@ -93,12 +93,10 @@ class StrategicAction(BaseModel):
     action: str = Field(description="Hyper-specific operational directive. Generic advice like 'review strategy' is forbidden. Name specific markets, product lines, or supply chain nodes.")
     expected_impact: str = Field(description="Quantifiable business impact.")
     timeline: str = Field(description="e.g., 90 Days, 6 Months, Q3.")
-    # FIX: Changed from int to str to prevent Groq validation errors
-    confidence: str = Field(description="1-100 score based on the strength of the underlying evidence. Output as a string (e.g., '85').")
+    confidence: int = Field(description="1-100 score based on the strength of the underlying evidence.")
 
 class CEOBrief(BaseModel):
-    # FIX: Changed from int to str to prevent Groq validation errors
-    report_confidence: str = Field(description="0-100 score based on overall data quality and verification. Output as a string (e.g., '92').")
+    report_confidence: int = Field(description="0-100 score based on overall data quality and verification.")
     narrative_what_changed: str = Field(description="What fundamental shift occurred in their market or unit economics recently?")
     narrative_why_now: str = Field(description="Why is immediate action required? What is the catalyst?")
     narrative_primary_move: str = Field(description="What is the single most important strategic pivot management must execute?")
