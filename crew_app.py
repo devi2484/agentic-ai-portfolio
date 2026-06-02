@@ -15,10 +15,9 @@ from urllib.parse import urlparse
 load_dotenv()
 GROQ_KEY = os.getenv("GROQ_KEY") or st.secrets.get("GROQ_KEY", "")
 
-# 70b — deep reasoning agents (researcher, strategist)
-llm_heavy = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
-# 8b — lightweight structured agents (signal detector, competitor intel)
-llm_fast = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant", temperature=0.1)
+# llama-3.1-8b-instant — separate TPD quota from 70b, handles structured output well
+llm_heavy = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant", temperature=0.1)
+llm_fast  = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant", temperature=0.1)
 
 st.set_page_config(page_title="AI Intelligence Engine", page_icon="♟️", layout="wide")
 st.title("♟️ Strategic Intelligence Engine")
