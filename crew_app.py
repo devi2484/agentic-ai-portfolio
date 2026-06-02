@@ -15,7 +15,10 @@ from urllib.parse import urlparse
 load_dotenv()
 GROQ_KEY = os.getenv("GROQ_KEY") or st.secrets.get("GROQ_KEY", "")
 
-llm = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
+# 70b — deep reasoning agents (researcher, strategist)
+llm_heavy = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
+# 8b — lightweight structured agents (signal detector, competitor intel)
+llm_fast = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant", temperature=0.1)
 
 st.set_page_config(page_title="AI Intelligence Engine", page_icon="♟️", layout="wide")
 st.title("♟️ Strategic Intelligence Engine")
@@ -68,29 +71,25 @@ def calculate_confidence(trust_label: str, board_relevance: int, strategic_impac
     return int((raw / 10) * 100)
 
 def run_enhanced_search(company: str) -> str:
-    """8-query search covering all high-signal strategic dimensions."""
+    """5-query search — highest signal-to-token ratio queries only."""
     queries = [
-        f"{company} revenue profit margin Q1 Q2 2025",
-        f"{company} market share vs competitors 2025",
-        f"{company} capital allocation fundraise acquisition 2025",
-        f"{company} supply chain logistics cost pressure 2025",
-        f"{company} strategic pivot new market expansion 2025",
-        f"{company} pricing power customer acquisition cost 2025",
-        f"{company} regulatory risk compliance challenge 2025",
-        f"{company} AI technology investment strategy 2025",
+        f"{company} revenue profit margin 2025",
+        f"{company} market share competitors 2025",
+        f"{company} capital allocation acquisition strategic pivot 2025",
+        f"{company} regulatory risk supply chain pressure 2025",
+        f"{company} AI investment pricing power 2025",
     ]
     results = []
     try:
         with DDGS() as ddgs:
             for q in queries:
-                for r in ddgs.text(q, max_results=3, timelimit="y"):
+                for r in ddgs.text(q, max_results=2, timelimit="y"):
                     url = r.get("href", "")
                     trust = evaluate_trust(url)
                     results.append(
-                        f"SOURCE: {url}\n"
-                        f"TRUST: {trust}\n"
+                        f"SOURCE: {url}\nTRUST: {trust}\n"
                         f"CONTENT: {r.get('title', '')} — {r.get('body', '')}\n"
-                        f"{'-' * 50}"
+                        f"{'-' * 40}"
                     )
     except Exception as e:
         st.error(f"Search API Error: {e}")
@@ -247,8 +246,8 @@ class CEOBrief(BaseModel):
 # ==========================================
 
 def run_researcher(company: str, raw_context: str) -> ResearchReport:
-    """Goldman Sachs Research Analyst — extracts strategic signals, not trivia."""
-    structured_llm = llm.with_structured_output(ResearchReport)
+    """Goldman Sachs Research Analyst — extracts strategic signals, not trivia. Uses 70b for reasoning depth."""
+    structured_llm = llm_heavy.with_structured_output(ResearchReport)
     prompt = f"""You are a Goldman Sachs Research Analyst preparing a fact pack for a Managing Director.
 
 GOLDEN RULE: Before accepting any fact ask: "If this fact disappeared tomorrow, would the board care?"
@@ -318,8 +317,8 @@ def run_hard_gate_validation(facts: List[IntelligenceFact]) -> List[ValidatedFac
 
 
 def run_competitor_intel(company: str, raw_context: str) -> CompetitorReport:
-    """Dedicated Competitor Intelligence Agent — named competitors only."""
-    structured_llm = llm.with_structured_output(CompetitorReport)
+    """Competitor Intelligence — uses 8b model, structured extraction task."""
+    structured_llm = llm_fast.with_structured_output(CompetitorReport)
     prompt = f"""You are a Competitive Intelligence Specialist. Your output goes directly to the CEO.
 
 From the search context identify up to 3 NAMED competitors for {company}.
@@ -341,9 +340,9 @@ Raw Search Context:
 def run_signal_detector(company: str, verified_facts: List[ValidatedFact]) -> SignalReport:
     """
     CRITICAL RULE #2: Signals generated ONLY from validated facts.
-    Never from raw research output.
+    Uses 8b model — classification task, not deep reasoning.
     """
-    structured_llm = llm.with_structured_output(SignalReport)
+    structured_llm = llm_fast.with_structured_output(SignalReport)
     fact_text = "\n".join([
         f"[{f.category} | {f.source_trust} | {f.date_signal}] {f.fact} | Why it matters: {f.why_it_matters}"
         for f in verified_facts
@@ -365,11 +364,9 @@ Validated Facts:
 def run_strategist(company: str, verified_facts: List[ValidatedFact],
                    signals: List[StrategicSignal], competitors: List[CompetitorIntel]) -> CEOBrief:
     """
-    CRITICAL RULE #3: Every recommendation follows:
-    Evidence → Implication → Competitor Context → Action → Expected Impact → Risk
-    CRITICAL RULE #4: Never invent numbers.
+    CRITICAL RULE #3 & #4. Uses 70b for board-level reasoning quality.
     """
-    structured_llm = llm.with_structured_output(CEOBrief)
+    structured_llm = llm_heavy.with_structured_output(CEOBrief)
 
     if not verified_facts:
         fact_text = (
@@ -442,7 +439,7 @@ if st.button("Run Strategic Analysis", type="primary"):
 
             # STEP 2 — Research Agent
             st.write("📊 Goldman Sachs Researcher — extracting strategic signals...")
-            research_data = run_researcher(company, raw_context[:4000])
+            research_data = run_researcher(company, raw_context[:3000])
 
             # STEP 3 — Hard-Gate Validation (programmatic, no LLM call, no sleep needed)
             st.write("🔒 Hard-Gate Validation — programmatic confidence scoring...")
@@ -456,7 +453,7 @@ if st.button("Run Strategic Analysis", type="primary"):
 
             # STEP 4 — Competitor Intelligence (independent of validation, uses raw context)
             st.write("🎯 Competitor Intelligence — mapping named threats and advantages...")
-            competitor_data = run_competitor_intel(company, raw_context[:3000])
+            competitor_data = run_competitor_intel(company, raw_context[:2000])
 
             time.sleep(4)
 
