@@ -1,10 +1,7 @@
 streamlit
 groq
-langchain_groq
-langchain_core
-ddgs
-requests
-langgraph
-python-dotenv
+langchain
 langchain-groq
-langchain-core
+python-dotenv
+crewai
+crewai-tools
