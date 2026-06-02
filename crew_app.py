@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from langchain_groq import ChatGroq
-from duckduckgo_search import DDGS 
+from ddgs import DDGS
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from typing import List, Literal, Optional
