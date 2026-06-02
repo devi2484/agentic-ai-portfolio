@@ -1,0 +1,10 @@
+streamlit
+groq
+langchain_groq
+langchain_core
+ddgs
+requests
+langgraph
+python-dotenv
+langchain-groq
+langchain-core
