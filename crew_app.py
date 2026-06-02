@@ -150,27 +150,61 @@ class ValidatedFact(BaseModel):
     strategic_impact: int
     confidence: int  # Calculated programmatically
 
+# ==========================================
+# ENUM NORMALIZATION — fixes 8b model drift
+# Converts any near-match to the canonical value, preventing 400 errors.
+# ==========================================
+SIGNAL_TYPES = [
+    "Emerging Threat", "Emerging Opportunity", "Strategic Inflection",
+    "Capital Shift", "Competitive Surprise", "Moat Erosion", "Moat Strengthening",
+    "Regulatory Risk", "Margin Compression", "Pricing Pressure"
+]
+URGENCY_VALUES   = ["IMMEDIATE", "90-DAY", "6-MONTH", "WATCH"]
+THREAT_TYPES     = ["Fastest Growing", "Largest Threat", "Weakening Moat",
+                    "Strengthening Moat", "Competitive Surprise", "Most Likely Future Threat"]
+FRAMEWORKS       = ["STOP", "START", "DOUBLE DOWN"]
+
+def _closest(value: str, options: list, default: str) -> str:
+    """Return exact match, case-insensitive match, or default."""
+    v = value.strip()
+    if v in options:
+        return v
+    v_lower = v.lower()
+    for o in options:
+        if o.lower() == v_lower:
+            return o
+    # partial match — pick first option that contains the value or vice versa
+    for o in options:
+        if v_lower in o.lower() or o.lower() in v_lower:
+            return o
+    return default
+
 # --- Signal Detector (runs ONLY on validated facts) ---
 class StrategicSignal(BaseModel):
-    signal_type: Literal[
-        "Emerging Threat", "Emerging Opportunity", "Strategic Inflection",
-        "Capital Shift", "Competitive Surprise", "Moat Erosion", "Moat Strengthening",
-        "Regulatory Risk", "Margin Compression", "Pricing Pressure"
-    ]
+    signal_type: str = Field(
+        description=f"Must be one of: {', '.join(SIGNAL_TYPES)}"
+    )
     signal: str = Field(description="The specific inflection point observed.")
-    urgency: Literal["IMMEDIATE", "90-DAY", "6-MONTH", "WATCH"]
+    urgency: str = Field(
+        description=f"Must be one of: {', '.join(URGENCY_VALUES)}"
+    )
     evidence_fact: str = Field(description="The exact validated fact that triggered this signal.")
 
 class SignalReport(BaseModel):
     signals: List[StrategicSignal]
 
+def normalize_signals(report: SignalReport) -> SignalReport:
+    for s in report.signals:
+        s.signal_type = _closest(s.signal_type, SIGNAL_TYPES, "Emerging Threat")
+        s.urgency     = _closest(s.urgency,      URGENCY_VALUES, "WATCH")
+    return report
+
 # --- Competitor Intelligence ---
 class CompetitorIntel(BaseModel):
     competitor_name: str
-    threat_type: Literal[
-        "Fastest Growing", "Largest Threat", "Weakening Moat",
-        "Strengthening Moat", "Competitive Surprise", "Most Likely Future Threat"
-    ]
+    threat_type: str = Field(
+        description=f"Must be one of: {', '.join(THREAT_TYPES)}"
+    )
     threat_summary: str = Field(description="Specific move or metric making them a threat.")
     advantage_summary: str = Field(description="Where the target company still has an edge.")
     recommended_response: str = Field(
@@ -184,9 +218,14 @@ class CompetitorIntel(BaseModel):
 class CompetitorReport(BaseModel):
     competitors: List[CompetitorIntel]
 
+def normalize_competitors(report: CompetitorReport) -> CompetitorReport:
+    for c in report.competitors:
+        c.threat_type = _closest(c.threat_type, THREAT_TYPES, "Largest Threat")
+    return report
+
 # --- Strategic Action ---
 class StrategicAction(BaseModel):
-    framework: Literal["STOP", "START", "DOUBLE DOWN"]
+    framework: str = Field(description=f"Must be one of: {', '.join(FRAMEWORKS)}")
     evidence: str = Field(description="The specific validated fact driving this recommendation.")
     implication: str = Field(description="The 'So What?' — why this changes competitive dynamics.")
     competitor_context: str = Field(description="How a named competitor is positioned on this dimension.")
