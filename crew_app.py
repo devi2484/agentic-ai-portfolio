@@ -4,7 +4,7 @@ from langchain_groq import ChatGroq
 from ddgs import DDGS
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Literal, Optional
 from urllib.parse import urlparse
 
 # ==========================================
@@ -97,13 +97,10 @@ def run_enhanced_search(company: str) -> str:
 
 # --- Research Agent ---
 class IntelligenceFact(BaseModel):
-    category: str = Field(
-        description=(
-            "Must be EXACTLY one of: "
-            "Profitability | Growth | Competitive Threat | Competitive Advantage | "
-            "Capital Allocation | Strategic Shift"
-        )
-    )
+    category: Literal[
+        "Profitability", "Growth", "Competitive Threat",
+        "Competitive Advantage", "Capital Allocation", "Strategic Shift"
+    ]
     fact: str = Field(
         description=(
             "One specific, verifiable fact from the source text. "
@@ -152,15 +149,12 @@ class ResearchReport(BaseModel):
 
 # --- Signal Detector ---
 class StrategicSignal(BaseModel):
-    signal_type: str = Field(
-        description=(
-            "Must be EXACTLY one of: "
-            "Emerging Threat | Emerging Opportunity | Strategic Inflection | "
-            "Capital Shift | Competitive Surprise | Moat Erosion | Moat Strengthening"
-        )
-    )
+    signal_type: Literal[
+        "Emerging Threat", "Emerging Opportunity", "Strategic Inflection",
+        "Capital Shift", "Competitive Surprise", "Moat Erosion", "Moat Strengthening"
+    ]
     signal: str = Field(description="The specific signal observed in the data.")
-    urgency: str = Field(description="Must be exactly one of: IMMEDIATE | 90-DAY | 6-MONTH | WATCH")
+    urgency: Literal["IMMEDIATE", "90-DAY", "6-MONTH", "WATCH"]
     evidence_fact: str = Field(description="The exact fact from research that triggered this signal.")
 
 class SignalReport(BaseModel):
@@ -169,12 +163,10 @@ class SignalReport(BaseModel):
 # --- Competitor Intelligence ---
 class CompetitorIntel(BaseModel):
     competitor_name: str
-    threat_type: str = Field(
-        description=(
-            "Must be one of: Fastest Growing | Largest Threat | Weakening Moat | "
-            "Strengthening Moat | Competitive Surprise | Most Likely Future Threat"
-        )
-    )
+    threat_type: Literal[
+        "Fastest Growing", "Largest Threat", "Weakening Moat",
+        "Strengthening Moat", "Competitive Surprise", "Most Likely Future Threat"
+    ]
     threat_summary: str = Field(description="What specific move or metric makes them a threat?")
     advantage_summary: str = Field(description="Where does the target company have an edge over this competitor?")
     recommended_response: str = Field(
@@ -211,7 +203,7 @@ class ValidationReport(BaseModel):
 
 # --- Strategic Action ---
 class StrategicAction(BaseModel):
-    framework: str = Field(description="Must be exactly one of: STOP | START | DOUBLE DOWN")
+    framework: Literal["STOP", "START", "DOUBLE DOWN"]
     evidence: str = Field(description="The specific verified fact driving this recommendation.")
     implication: str = Field(
         description="The 'So What?' — why this fact fundamentally changes competitive dynamics."
