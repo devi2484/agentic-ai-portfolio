@@ -6,7 +6,7 @@ from langchain_groq import ChatGroq
 from ddgs import DDGS
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from typing import List, Literal
+from typing import List
 from urllib.parse import urlparse
 
 # ==========================================
@@ -100,10 +100,10 @@ def run_enhanced_search(company: str) -> str:
 
 # --- Research Agent ---
 class IntelligenceFact(BaseModel):
-    category: Literal[
-        "Profitability", "Growth", "Competitive Threat",
-        "Competitive Advantage", "Capital Allocation", "Strategic Shift"
-    ]
+    # FIX: Changed Literal to str to prevent Groq API enum parsing crashes
+    category: str = Field(
+        description="Must be exactly one of: Profitability, Growth, Competitive Threat, Competitive Advantage, Capital Allocation, Strategic Shift"
+    )
     fact: str = Field(
         description=(
             "One specific, verifiable fact from the source. "
@@ -311,6 +311,11 @@ For source_trust: copy EXACTLY from the TRUST label in the raw context (HIGH TRU
 For financials: exact numbers if present. If absent — qualitative language only. NEVER invent figures.
 For dates: facts from last 18 months only. Write "Undated" if no date found.
 
+CRITICAL JSON FORMATTING RULES:
+1. Do NOT escape single quotes (\'). (e.g., write "Company's", not "Company\'s"). This creates invalid JSON.
+2. Escape all line breaks as '\\n'.
+3. Always return valid, strictly formatted JSON.
+
 Raw Search Context:
 {raw_context}"""
     return structured_llm.invoke(prompt)
@@ -370,6 +375,11 @@ For each competitor:
 FORBIDDEN counter-moves: "improve innovation", "focus on customers", "optimize operations", 
 "review strategy", "increase efficiency", "enhance marketing"
 
+CRITICAL JSON FORMATTING RULES:
+1. Do NOT escape single quotes (\'). (e.g., write "Company's", not "Company\'s"). This creates invalid JSON.
+2. Escape all line breaks as '\\n'.
+3. Always return valid, strictly formatted JSON.
+
 Raw Search Context:
 {raw_context}"""
     return structured_llm.invoke(prompt)
@@ -393,6 +403,11 @@ URGENCY:
 - 90-DAY: decision required this quarter
 - 6-MONTH: on strategic roadmap
 - WATCH: monitor, no action yet
+
+CRITICAL JSON FORMATTING RULES:
+1. Do NOT escape single quotes (\'). (e.g., write "Company's", not "Company\'s"). This creates invalid JSON.
+2. Escape all line breaks as '\\n'.
+3. Always return valid, strictly formatted JSON.
 
 Validated Facts:
 {fact_text}"""
@@ -443,6 +458,11 @@ RULES:
    Use qualitative language when hard numbers are absent.
 5. Timelines must be future-dated. Never reference past dates.
 6. Provide EXACTLY 3 actions ranked by strategic impact (highest first).
+
+CRITICAL JSON FORMATTING RULES:
+1. Do NOT escape single quotes (\'). (e.g., write "Company's", not "Company\'s"). This creates invalid JSON.
+2. Escape all line breaks as '\\n'.
+3. Always return valid, strictly formatted JSON.
 
 Verified Evidence (ONLY these facts may be used):
 {fact_text}
@@ -648,29 +668,3 @@ if st.button("Run Strategic Analysis", type="primary"):
                     st.markdown("**5. Expected Impact**")
                     st.success(action.expected_impact)
                     st.markdown("**6. Risk**")
-                    st.error(action.risk)
-                    st.caption(f"Action Confidence: {action.confidence}/100")
-
-        # --- Export ---
-        st.divider()
-        export_data = {
-            "company": company,
-            "health_score": final_brief.company_health_score,
-            "report_confidence": final_brief.report_confidence,
-            "pipeline_stats": {
-                "facts_extracted": total_extracted,
-                "passed_hard_gate": passed_gate,
-                "gate_pass_rate_pct": gate_rate,
-                "signals_detected": len(signal_data.signals),
-            },
-            "verified_facts": [vf.model_dump() for vf in verified_facts],
-            "board_brief": final_brief.model_dump(),
-            "signals": [s.model_dump() for s in signal_data.signals],
-            "competitor_intel": [c.model_dump() for c in competitor_data.competitors],
-        }
-        st.download_button(
-            "Download Full Intelligence Package (JSON)",
-            data=json.dumps(export_data, indent=2),
-            file_name=f"{company}_board_brief.json",
-            mime="application/json"
-        )
