@@ -24,7 +24,7 @@ llm_70b = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", tempe
 
 st.set_page_config(page_title="Strategic Intelligence Engine", page_icon="⚖️", layout="wide")
 st.title("⚖️ Strategic Intelligence Engine")
-st.markdown("**Evidence-Based Decision Support System** · Upgraded Reasoning Layer · Active Competitor Benchmarking")
+st.markdown("**Evidence-Based Decision Support System** · Dynamic Two-Stage Deep Competitor Search · Scored Options")
 st.divider()
 
 # ==========================================
@@ -192,7 +192,7 @@ INDUSTRY_TREND_MARKERS = [
     r'\b(it is expected|it is projected|forecasters|research firms predict)\b',
 ]
 
-def check_company_relevance(fact_text: str, canonical_name: str) -> tuple[bool, str]:
+def check_company_relevance(fact_text: str, canonical_name: str, competitors_str: str = "") -> tuple[bool, str]:
     text_lower = fact_text.lower()
     name_lower = canonical_name.lower()
     name_core = name_lower
@@ -201,12 +201,24 @@ def check_company_relevance(fact_text: str, canonical_name: str) -> tuple[bool, 
     name_core = name_core.strip()
 
     company_mentioned = name_core in text_lower or name_lower in text_lower
+    
+    competitor_mentioned = False
+    if competitors_str and competitors_str.lower() != "unknown":
+        for comp in competitors_str.split(","):
+            comp_clean = comp.strip().lower()
+            for suffix in [" limited", " ltd", " inc", " corp", " group", " pvt", " plc"]:
+                comp_clean = comp_clean.replace(suffix, "")
+            comp_clean = comp_clean.strip()
+            if comp_clean and comp_clean in text_lower:
+                competitor_mentioned = True
+                break
+
     has_trend_language = any(re.search(pattern, text_lower) for pattern in INDUSTRY_TREND_MARKERS)
 
-    if has_trend_language and not company_mentioned:
+    if has_trend_language and not (company_mentioned or competitor_mentioned):
         return True, (
             f"Fact describes an industry trend without explicitly linking to "
-            f"'{canonical_name}'. Only company-specific insights are admitted."
+            f"'{canonical_name}' or its rivals ({competitors_str}). Only relevant operational data is admitted."
         )
     return False, ""
 
@@ -394,11 +406,11 @@ def calibrate_confidence_label(verified_facts: list) -> tuple[str, str]:
     high_trust_count = sum(1 for f in verified_facts if "HIGH TRUST" in f.source_trust.upper() or "PRIMARY" in f.source_trust.upper())
     avg_quality = sum(f.fact_quality_score for f in verified_facts) / n if n else 0
 
-    if n >= 8 and high_trust_count >= 2 and avg_quality >= 65:
+    if n >= 6 and high_trust_count >= 2 and avg_quality >= 60:
         return "HIGH", f"{n} verified facts, {high_trust_count} primary/high-trust corporate records. Solid, cross-corroborated base."
-    elif n >= 5:
+    elif n >= 4:
         return "MEDIUM-HIGH", f"{n} verified facts, {high_trust_count} primary/high-trust source(s). Stable decision dataset."
-    elif n >= 3:
+    elif n >= 2:
         return "MEDIUM", f"{n} verified facts. Moderate coverage; verify critical strategic milestones manually."
     else:
         return "LOW", f"Only {n} factual anchors survived filtering. Conclusions must be considered tentative."
@@ -518,10 +530,10 @@ def validate_traceability_chain(brief, verified_facts: list = None) -> list[str]
 
     for comp in brief.competitive_landscape:
         c_name = comp.competitor or "Unknown"
-        if comp.advantage and not comp.advantage_evidence:
+        if comp.advantage and "INSUFFICIENT" in comp.advantage:
+            pass # Explicit indicator output accepted
+        elif comp.advantage and not comp.advantage_evidence:
             violations.append(f"Competitor '{c_name}': Stated advantage lacks clear fact-link source tracking.")
-        if comp.vulnerability and not comp.vulnerability_evidence:
-            violations.append(f"Competitor '{c_name}': Stated vulnerability lacks clear fact-link source tracking.")
 
     decision = brief.recommended_decision or ""
     if decision:
@@ -578,10 +590,9 @@ def run_primary_source_search(company: str) -> str:
     prev_year    = current_year - 1
     queries = [
         f'"{company}" concall transcript {current_year} earnings call management',
-        f'"{company}" Q4 {prev_year} earnings transcript investor commentary',
+        f'"{company}" Q4 {prev_year} earnings transcript investor financial metrics',
         f'"{company}" annual report PDF investor financials FY{str(prev_year)[-2:]}',
-        f'"{company}" investor presentation strategy roadmap targets {current_year}',
-        f'"{company}" BSE NSE regulatory disclosure results corporate announcement {current_year}'
+        f'"{company}" investor presentation strategy roadmap targets {current_year}'
     ]
     results = []
     for r in _ddgs_search(queries, max_per_query=3):
@@ -593,9 +604,8 @@ def run_primary_source_search(company: str) -> str:
 def run_general_search(company: str) -> str:
     current_year = datetime.now().year
     queries = [
-        f"{company} volume growth compression margin contraction metrics {current_year}",
-        f"{company} competitor execution market share distribution benchmarks {current_year}",
-        f"{company} structural headwind supply chain cost impact {current_year}"
+        f"{company} performance revenue profit margin growth metrics {current_year}",
+        f"{company} regulatory challenges compliance supply chain risk {current_year}"
     ]
     results = []
     for r in _ddgs_search(queries, max_per_query=2):
@@ -604,12 +614,31 @@ def run_general_search(company: str) -> str:
         results.append(f"URL: {url}\nTRUST: {trust}\nDATA: {r.get('title','')} — {r.get('body','')}\n{'-'*40}")
     return "\n".join(results)
 
-def run_enhanced_search(company: str) -> str:
-    st.write("📂 [Phase 1] Querying regulatory hosts, concall indices, and corporate disclosures...")
-    p_ctx = run_primary_source_search(company)
-    st.write("📰 [Phase 2] Extracting secondary macroeconomic and cross-company competitor metrics...")
-    g_ctx = run_general_search(company)
+def run_competitor_deep_search(company: str, competitors_str: str) -> str:
+    """Stage 2 Search: Targets direct financial head-to-heads based on discovered rivals."""
+    current_year = datetime.now().year
+    results = []
+    if not competitors_str or competitors_str.lower() == "unknown":
+        return ""
     
+    # Generate explicit crossover queries
+    rivals = [r.strip() for r in competitors_str.split(",")[:3]]
+    queries = []
+    for rival in rivals:
+        queries.extend([
+            f'"{company}" vs "{rival}" market share growth revenue {current_year}',
+            f'"{company}" "{rival}" margin compression operating benchmarks'
+        ])
+        
+    for r in _ddgs_search(queries, max_per_query=2):
+        url = r.get("href", "")
+        trust = evaluate_trust(url, company)
+        results.append(f"[COMPETITOR TARGET BENCHMARK]\nURL: {url}\nTRUST: {trust}\nDATA: {r.get('title','')} — {r.get('body','')}\n{'='*50}")
+    return "\n".join(results)
+
+def run_enhanced_search(company: str) -> str:
+    p_ctx = run_primary_source_search(company)
+    g_ctx = run_general_search(company)
     combined = ""
     if p_ctx:
         combined += "===== SECURED STRATEGIC CORPORATE DATA DISCLOSURES =====\n" + p_ctx + "\n\n"
@@ -724,7 +753,7 @@ Return a valid JSON object:
   "business_model": "Primary mechanism for cash generation based on text data",
   "primary_market": "Core geographic focus region",
   "known_subsidiaries": "Comma separated list of clear subsidiaries, or Unknown",
-  "known_competitors": "List major market operating rivals clearly mentioned or linked in text",
+  "known_competitors": "List major market operating rivals clearly mentioned or linked in text (e.g., Nike, Puma for Adidas)",
   "contamination_warnings": "None detected OR detail if source material describes a mismatched entity"
 }}
 Company queried: {company}
@@ -739,33 +768,32 @@ Context window snippet: {raw_context[:2000]}"""
         )
 
 def run_researcher(company: str, entity: EntityProfile, raw_context: str) -> List[IntelligenceFact]:
-    prompt = f"""You are a Fact Extraction System. Pull highly specific, granular financial and operational records for {entity.canonical_name}.
-Extract 4-6 distinct factual markers.
+    prompt = f"""You are a High-Precision Extraction Engine running on a advanced LLM framework. Collect granular metrics for {entity.canonical_name}.
+Extract 6-10 highly distinctive factual milestones or comparative statements.
 
 CRITICAL DISCIPLINE:
-1. Every record MUST contain an internal quantitative data anchor (e.g. absolute number, currency value, percentage, specific quarter/milestone).
-2. Omit any broad descriptive generalities or surface level corporate summaries.
-3. Track source mapping and assign initial trust metrics.
-4. TARGET COMPETITIVE CONTEXT: Actively look for cross-company benchmarks or metrics involving known rivals ({entity.known_competitors}). Map these under "Competitive Threat" or "Competitive Advantage".
+1. Every entry MUST embed exact numerical tokens (percentages, currencies, quarter codes, margins, unit shipments).
+2. Proactively extract cross-company performance profiles or comparative financial data involving known industry rivals: ({entity.known_competitors}). 
+3. If rival performance deltas or revenue gains/losses are stated anywhere in the source data, record them under "Competitive Threat" or "Competitive Advantage".
 
 Return JSON format:
 {{
   "facts": [
     {{
       "category": "Must match one of: {', '.join(FACT_CATEGORIES)}",
-      "fact": "Granular verifiable statement embedding precise data metrics, timelines, or benchmarks.",
+      "fact": "Granular verifiable data point mapping target parameters or target vs rival performance metrics.",
       "source_url": "Absolute source reference URL",
-      "source_trust": "HIGH TRUST / MEDIUM TRUST / LOW TRUST",
-      "date_signal": "Specific tracking period (e.g., Q3 2025). Use 'Undated' if unverified.",
+      "source_trust": "PRIMARY SOURCE / HIGH TRUST / MEDIUM TRUST",
+      "date_signal": "Specific tracking period (e.g., Q4 2025). Use 'Undated' if unverified.",
       "board_relevance": 9,
       "strategic_impact": 9
     }}
   ]
 }}
-Source Feed:
+Full Available Context Block:
 {raw_context}"""
     try:
-        data = invoke_json(prompt, model_type="8b")
+        data = invoke_json(prompt, model_type="70b") # Upgraded to 70B for extraction depth
         facts = []
         for f in data.get("facts", []):
             try:
@@ -778,28 +806,27 @@ Source Feed:
         return facts
     except Exception: return []
 
-def run_hard_gate_validation(facts: List[IntelligenceFact], canonical_name: str = "") -> tuple[List[ValidatedFact], List[dict]]:
+def run_hard_gate_validation(facts: List[IntelligenceFact], canonical_name: str, competitors_str: str) -> tuple[List[ValidatedFact], List[dict]]:
     verified, rejected = [], []
     for f in facts:
         reasons = []
         is_non_decision, nd_reason = is_non_decision_content(f.fact)
         if is_non_decision:
             reasons.append(f"Fails decision grade test: {nd_reason}")
-        if canonical_name:
-            is_irrelevant, rel_reason = check_company_relevance(f.fact, canonical_name)
-            if is_irrelevant:
-                reasons.append(f"Entity boundary violation: {rel_reason}")
-        if f.board_relevance < 8 or f.strategic_impact < 8:
+        
+        is_irrelevant, rel_reason = check_company_relevance(f.fact, canonical_name, competitors_str)
+        if is_irrelevant:
+            reasons.append(f"Entity boundary violation: {rel_reason}")
+            
+        if f.board_relevance < 7 or f.strategic_impact < 7: # Balanced down slightly to allow deep competitor cross-benchmarks
             reasons.append(f"Insufficient intensity metrics (Relevance: {f.board_relevance}, Impact: {f.strategic_impact})")
         if "LOW TRUST" in f.source_trust.upper():
             reasons.append("Source channel flagged as LOW TRUST")
         
         confidence = calculate_confidence(f.source_trust, f.board_relevance, f.strategic_impact)
-        conf_threshold = 60 if "PRIMARY SOURCE" in f.source_trust.upper() else 70
+        conf_threshold = 55 if "PRIMARY SOURCE" in f.source_trust.upper() else 65
         if confidence < conf_threshold:
             reasons.append(f"Calculated data confidence ({confidence}%) fails safety bounds.")
-        if f.date_signal == "Undated" and f.source_trust.upper() not in ["PRIMARY SOURCE", "HIGH TRUST"]:
-            reasons.append("Timeless data from secondary source rejected.")
 
         fqs, fqs_breakdown = calculate_fact_quality_score(f.fact, f.source_trust, f.board_relevance, f.strategic_impact, f.date_signal)
         if fqs < FACT_QUALITY_THRESHOLD:
@@ -842,17 +869,6 @@ Verified Dataset Input:
         return signals
     except Exception: return []
 
-def score_options_deterministically(options: List[EvaluatedOption]) -> List[EvaluatedOption]:
-    scored = []
-    for opt in options:
-        opt.composite_score = calculate_option_score(
-            opt.evidence_support_score, opt.strategic_fit_score, opt.opportunity_score,
-            opt.urgency_score, opt.risk_score, opt.complexity_score
-        )
-        scored.append(opt)
-    scored.sort(key=lambda x: x.composite_score, reverse=True)
-    return scored
-
 def run_expert_reasoner(
     company: str, entity: EntityProfile, verified_facts: List[ValidatedFact],
     signals: List[StrategicSignal], evidence_sufficient: bool, sufficiency_message: str
@@ -875,11 +891,11 @@ Avoid generic boilerplate summaries or filler text. Every output vector must cha
 ### GATE 1 — STRUCTURAL OBSERVATION PURITY
 Observations MUST strictly state the naked data recorded in the text. They are strictly prohibited from embedding explanatory modifiers or logic links.
 - FORBIDDEN TOKENS: because, therefore, suggests, indicates, implies, means that, as a result, due to, caused by, which shows, hence, thus.
-- METRIC PRESERVATION: Retain identical metric definitions. If evidence tracking records a variance in EBITDA, the observation cannot swap it for 'operating efficiency' or 'sales profit'.
+- METRIC PRESERVATION: Retain identical metric definitions. If evidence tracking records a variance in EBITDA, the observation cannot swap it for 'operating efficiency'.
 
 ### GATE 2 — REASONED CAUSAL DIAGNOSTICS (NO LAZY UNKNOWNS)
-You are a advanced reasoning instance. You must actively analyze broader market trends, corporate restructuring events, and financial pressures present within the text to synthesize and deduce the most likely operational or economic driver ('Root Cause') behind an observation. 
-Do not simply output 'UNKNOWN' unless there is absolute zero relational context. Never restate or mirror the observation text inside the cause field.
+You are an advanced reasoning instance. You must actively analyze broader market trends, corporate restructuring events, and financial pressures present within the text to synthesize and deduce the most likely operational or economic driver ('Root Cause') behind an observation. 
+Do not output 'UNKNOWN' unless there is absolute zero relational context. Never restate or mirror the observation text inside the cause field.
 
 ### GATE 3 — STRATEGIC INFERENCE DECONSTRUCTION
 Inferences must capture the downstream long-term viability impact. 
@@ -892,7 +908,7 @@ Do not populate generic templates like "Portfolio-Driven Revenue Resilience". Yo
 - REJECT BARE LABELS: "Revenue Growth", "Profitability", "Market Share".
 
 ### GATE 5 — RELATIONAL COMPETITIVE POSITIONING
-Actively map available factual indicators against the specified rivals list ({entity.known_competitors}). Deduce competitive advantages or structural positioning deficits. If no context allows a logical deduction, populate with 'INSUFFICIENT_COMPETITIVE_EVIDENCE'. Do not leave fields blank or null.
+Actively map available factual indicators against the specified rivals list ({entity.known_competitors}). If the facts contain specific performance numbers, revenue shifts, or structural advantages/vulnerabilities regarding competitors like Nike or Puma, state them clearly. Deduce competitive advantages or structural positioning deficits based *only* on the text data. If no context allows a logical deduction for a competitor, populate with 'INSUFFICIENT_COMPETITIVE_EVIDENCE'. Do not leave fields blank or null.
 
 ### GATE 6 — MUTUALLY EXCLUSIVE STRATEGIC POSTURING
 Generate exactly 3 option blocks representing completely independent strategic directions:
@@ -939,10 +955,10 @@ OUTPUT FORMAT — STRICT RAW VALID JSON STRUCTURE ONLY matching the following sc
   "competitive_landscape": [
     {{
       "competitor": "Name of rival parsed from profile context",
-      "advantage": "Contextually reasoned market edge",
-      "advantage_evidence": "Explicit fact link or INSUFFICIENT_COMPETITIVE_EVIDENCE",
-      "vulnerability": "Operational deficit or performance delta",
-      "vulnerability_evidence": "Explicit fact link or INSUFFICIENT_COMPETITIVE_EVIDENCE"
+      "advantage": "Contextually reasoned market edge derived from facts, or INSUFFICIENT_COMPETITIVE_EVIDENCE",
+      "advantage_evidence": "Explicit fact link statement, or INSUFFICIENT_COMPETITIVE_EVIDENCE",
+      "vulnerability": "Operational deficit or performance delta derived from facts, or INSUFFICIENT_COMPETITIVE_EVIDENCE",
+      "vulnerability_evidence": "Explicit fact link statement, or INSUFFICIENT_COMPETITIVE_EVIDENCE"
     }}
   ],
   "evaluated_options": [
@@ -1017,26 +1033,33 @@ if st.button("Run System Verification Pipeline", type="primary"):
         st.error("Target identification vector required.")
     else:
         with st.status(f"Executing Multi-Agent Strategic Intelligence Pipeline for {company}...", expanded=True) as status:
+            st.write("📡 Stage 1: Harvesting target corporate files and raw regulatory records...")
             raw_context = run_enhanced_search(company)
             if not raw_context:
                 st.error("Search indices failed to secure raw target context.")
                 st.stop()
             time.sleep(0.5)
 
-            st.write("🔍 Resolving legal and relational structural identity...")
+            st.write("🔍 Stage 2: Resolving legal identity and identifying core rivals...")
             entity = run_entity_resolution(company, raw_context)
             entity_conf, entity_conf_msg = calculate_entity_confidence(entity)
             if entity_conf < ENTITY_CONFIDENCE_THRESHOLD:
                 st.warning(f"⚠️ {entity_conf_msg}")
             time.sleep(0.5)
 
-            st.write("📊 Harvesting primary operational metrics and benchmarks...")
-            raw_facts = run_researcher(company, entity, raw_context[:15000])
+            st.write(f"🎯 Stage 3: Launching deep competitor benchmark search queries for: {entity.known_competitors}...")
+            competitor_context = run_competitor_deep_search(entity.canonical_name, entity.known_competitors)
+            
+            # Combine Stage 1 and Stage 2 searches to create a comprehensive data lake
+            full_data_lake = raw_context + "\n\n===== COMPETITIVE CROSS-COMPANY BENCHMARKS =====\n" + competitor_context
 
-            st.write("🔒 Injecting records into validation gate & factual precision scorer...")
-            verified_facts, rejected_facts = run_hard_gate_validation(raw_facts, entity.canonical_name)
+            st.write("📊 Stage 4: Harvesting operational metrics, financial reports, and rival benchmarks...")
+            raw_facts = run_researcher(company, entity, full_data_lake[:25000])
 
-            st.write("🔁 Executing Jaccard semantic deduplication filter...")
+            st.write("🔒 Stage 5: Injecting records into validation gate & factual precision scorer...")
+            verified_facts, rejected_facts = run_hard_gate_validation(raw_facts, entity.canonical_name, entity.known_competitors)
+
+            st.write("🔁 Stage 6: Executing Jaccard semantic deduplication filter...")
             verified_facts, dup_log = deduplicate_facts(verified_facts)
 
             report_confidence_prelim = calculate_report_confidence(verified_facts, len(raw_facts))
@@ -1044,11 +1067,11 @@ if st.button("Run System Verification Pipeline", type="primary"):
             if not evidence_sufficient:
                 st.warning(f"⚠️ Data Sufficiency Warning: {sufficiency_message}")
 
-            st.write("🔭 Extracting market shifts and macro strategic signals...")
+            st.write("🔭 Stage 7: Extracting market shifts and macro strategic signals...")
             signals = run_signal_detector(company, verified_facts)
             time.sleep(0.5)
 
-            st.write("⚖️ Engaging Llama 70B Strategic Reasoning Engine with traceability compliance...")
+            st.write("⚖️ Stage 8: Engaging Llama 70B Strategic Reasoning Engine with traceability compliance...")
             final_brief = run_expert_reasoner(company, entity, verified_facts, signals, evidence_sufficient, sufficiency_message)
             status.update(label="Analytical Pipeline Execution Complete", state="complete")
 
