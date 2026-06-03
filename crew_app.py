@@ -414,10 +414,10 @@ def calibrate_confidence_label(verified_facts: list) -> tuple[str, str]:
 
 def get_evidence_sufficiency(verified_facts: list, report_confidence: int) -> tuple[bool, str]:
     if len(verified_facts) < MIN_VERIFIED_FACTS:
-        return False, f"Only {len(verified_facts)} filing facts isolated. Insufficient dataset."
+        return False, f"Only {len(verified_facts)} data nodes isolated. Minimum requirement is {MIN_VERIFIED_FACTS}."
     if report_confidence < MIN_REPORT_CONFIDENCE:
-        return False, f"Source dataset composition failed confidence constraints ({report_confidence}%)."
-    return True, "Filing evidence parameters fully met."
+        return False, f"Filing profile confidence index at {report_confidence}%, below processing gate threshold."
+    return True, "Filing evidence metrics passed threshold requirements."
 
 def calculate_option_score(evidence_support: int, strategic_fit: int,
                             opportunity: int, urgency: int,
@@ -592,17 +592,17 @@ def validate_traceability_chain(brief, verified_facts: list = None) -> list[str]
     return violations
 
 # ==========================================
-# 4. ENHANCED DEEP FILINGS & CONCALL SEARCH
+# 4. FIXED SEARCH NETS (MORE BALANCED MODIFIERS)
 # ==========================================
 def run_enhanced_search(company: str) -> str:
     current_year = datetime.now().year
     queries = [
-        f"{company} \"annual report\" OR \"financial statements\" OR \"MD&A\" performance {current_year}",
-        f"{company} \"earnings call transcript\" OR \"concall\" transcript {current_year}",
-        f"{company} \"investor presentation\" OR \"analyst meet\" strategy metrics {current_year}",
-        f"{company} \"annual report\" capex capital allocation leverage",
-        f"{company} \"concall\" margin pressure cost headwinds guidance",
-        f"{company} regulatory filings \"Form 10-K\" OR \"SEBI\" filings disclosures compliance"
+        f"{company} annual report financial statements MD&A performance {current_year}",
+        f"{company} earnings call transcript concall results {current_year}",
+        f"{company} investor presentation strategy metrics corporate updates",
+        f"{company} capex capital allocation debt leverage execution",
+        f"{company} operational margin expansion cost headwinds pressure",
+        f"{company} regulatory filings SEBI disclosure compliance"
     ]
     results = []
     try:
@@ -886,6 +886,9 @@ def score_options_deterministically(options: List[EvaluatedOption]) -> List[Eval
     scored.sort(key=lambda x: x.composite_score, reverse=True)
     return scored
 
+# ==========================================
+# 7. FIXED STRATEGIC REASONING PROMPT ENGINE
+# ==========================================
 def run_expert_reasoner(
     company: str, entity: EntityProfile, verified_facts: List[ValidatedFact],
     signals: List[StrategicSignal], evidence_sufficient: bool, sufficiency_message: str
@@ -893,6 +896,7 @@ def run_expert_reasoner(
 
     fact_text   = "\n".join([f"- [{f.category}] {f.fact} (Quality: {f.fact_quality_score}/100)" for f in verified_facts]) if verified_facts else "DATASET DEFICIT."
     signal_text = "\n".join([f"- [{s.urgency}] {s.signal}" for s in signals]) or "No trends isolated."
+    target_status = 'SUFFICIENT' if evidence_sufficient else 'INSUFFICIENT_EVIDENCE'
 
     prompt = f"""# SYSTEM INSTRUCTIONS: STRATEGIC REASONING MATRIX
 
@@ -903,8 +907,12 @@ You are a strict Evidence-Based Strategic Reasoning Engine parsing management tr
 [Filing Evidence] -> [Observation] -> [Root Cause] -> [Inference] -> [Theme] -> [Options] -> [Decision]
 
 ---
+## DATA SUFFICIENCY VALUE
+The computed data gate state is calculated explicitly as: {target_status} ({sufficiency_message})
+Your JSON output "status" key MUST match this computed state. 
+
 ## GATE 1 — OBSERVATION PURITY
-Observations MUST only restate filing metrics without causal words (because, therefore, suggests, indicates, implies, means that) or forward-looking projections.
+Observations MUST only restate filing metrics without causal words (because, therefore, suggests, indicates, implies) or forward-looking projections.
 Exact metric identity MUST be preserved (e.g., if filing cites PAT, use PAT; never switch to general profit labels).
 
 ## GATE 2 — ROOT CAUSE MANAGEMENT
@@ -914,16 +922,13 @@ Isolate institutional triggers. If evidence does not specify an operational caus
 Explain structural significance using industry language. Append uncertainty parameters (| CONFIRMED, | LIKELY, or | HYPOTHESIS). Must use strategic markers (pressure, moat, execution risk).
 
 ## GATE 4 — THEME REQUIREMENT
-Strategic Themes require min 2 observations tracking a continuous operational path. Otherwise label as EMERGING SIGNAL. Good names describe a pattern ("Margin Expansion Under Pressure"), bad names are bare category labels ("Revenue").
+Strategic Themes require min 2 observations tracking a continuous operational path. Otherwise label as EMERGING SIGNAL.
 
 ## GATE 5 — COMPETITIVE INTEGRITY
 Isolate competitor claims only if supported by reporting text. If competitive evidence is unavailable, write exactly: INSUFFICIENT_COMPETITIVE_EVIDENCE.
 
 ## GATE 6 — STRATEGIC POSTURES
 Generate exactly 3 options: Conservative, Balanced, Aggressive.
-- Conservative = Protect existing base lines, maintain margin profile
-- Balanced     = Optimize cost structure, improve asset turns
-- Aggressive   = Deploy capital into new advantage channels, structural change
 
 ## GATE 7 — DISCLOSURE SPECIFICITY TEST
 Recommending action paths missing explicit anchors (percentages, exact fiscal quarters, product lines) triggers system rejection.
@@ -932,8 +937,6 @@ Recommending action paths missing explicit anchors (percentages, exact fiscal qu
 Format: "Based on Obs: [...], Inf: [...], Theme: [...], Opt: [...]: [uniquely anchored execution step]"
 
 ---
-Filing Dataset Parameters: {'SUFFICIENT' if evidence_sufficient else 'INSUFFICIENT_EVIDENCE'} ({sufficiency_message})
-
 Verified Filing Records:
 {fact_text}
 
@@ -942,10 +945,10 @@ Strategic Trends:
 
 Entity: {entity.canonical_name} | {entity.industry} | {entity.primary_market}
 
-OUTPUT STRICT JSON STRUCTURE EXACTLY MATCHING THE FORMAT PROFILE SPECIFIED BELOW:
+OUTPUT STRICT JSON STRUCTURE AND FILL ALL PARAMETERS DYNAMICALLY BASED ON THE GIVEN FILING DISCLOSURES. DO NOT USE GENERIC HARDCODED TEMPLATE STRINGS:
 {{
-  "status": "{'SUFFICIENT' if evidence_sufficient else 'INSUFFICIENT_EVIDENCE'}",
-  "reason": "Execution parameters verified.",
+  "status": "Write either 'SUFFICIENT' or 'INSUFFICIENT_EVIDENCE' here matching exactly the target calculation state parameter provided",
+  "reason": "Write a descriptive evaluation summary of why the filing density passed or failed thresholds here",
   "evidence_and_observation_log": [
     {{
       "evidence": "Paraphrase or quotation of the corporate data point",
@@ -975,7 +978,7 @@ OUTPUT STRICT JSON STRUCTURE EXACTLY MATCHING THE FORMAT PROFILE SPECIFIED BELOW
   "evaluated_options": [
     {{
       "option_type": "Conservative",
-      "option_strategy": "Protect existing position — description summary",
+      "option_strategy": "Protect existing position baseline mapping",
       "description": "Granular deployment directive tailored explicitly to filing tracking context",
       "traceability_chain": "Theme [X] -> Inference [Y] -> Observation [Z]",
       "evidence_support_score": 5,
@@ -990,7 +993,7 @@ OUTPUT STRICT JSON STRUCTURE EXACTLY MATCHING THE FORMAT PROFILE SPECIFIED BELOW
     }},
     {{
       "option_type": "Balanced",
-      "option_strategy": "Optimize existing position — description summary",
+      "option_strategy": "Optimize cost structure metrics",
       "description": "Granular deployment directive tailored explicitly to filing tracking context",
       "traceability_chain": "Theme [X] -> Inference [Y] -> Observation [Z]",
       "evidence_support_score": 5,
@@ -1005,7 +1008,7 @@ OUTPUT STRICT JSON STRUCTURE EXACTLY MATCHING THE FORMAT PROFILE SPECIFIED BELOW
     }},
     {{
       "option_type": "Aggressive",
-      "option_strategy": "Create new strategic advantage — description summary",
+      "option_strategy": "Deploy strategic capital allocation vectors",
       "description": "Granular deployment directive tailored explicitly to filing tracking context",
       "traceability_chain": "Theme [X] -> Inference [Y] -> Observation [Z]",
       "evidence_support_score": 5,
@@ -1028,6 +1031,12 @@ OUTPUT STRICT JSON STRUCTURE EXACTLY MATCHING THE FORMAT PROFILE SPECIFIED BELOW
 """
     try:
         data = invoke_json(prompt)
+        
+        # Guard clause to ensure prompt value syncs matching hard calculation parameters
+        data["status"] = target_status
+        if not data.get("reason") or "write" in data["reason"].lower():
+            data["reason"] = sufficiency_message
+            
         brief = DecisionIntelligenceBrief(**data)
         brief.evaluated_options = score_options_deterministically(brief.evaluated_options)
         return brief
@@ -1091,7 +1100,7 @@ if st.button("Run Evidence-Based Ingestion Pipeline", type="primary"):
             st.stop()
 
         # ==========================================
-        # DISPLAY LAYER (CLEANED OF CONFIDENCE MARKS)
+        # DISPLAY LAYER
         # ==========================================
         st.divider()
         st.header(f"Corporate Intelligence Brief — {entity.canonical_name.upper()}")
@@ -1104,7 +1113,7 @@ if st.button("Run Evidence-Based Ingestion Pipeline", type="primary"):
         else:
             st.success("✅ DISCLOSURE SUFFICIENCY PROFILE VERIFIED")
 
-        # 1. FACT QUALITY REPORT (CONFIDENCE METRIC REMOVED)
+        # 1. FACT QUALITY REPORT
         with st.expander(f"📊 Filing Validation Ledger — {len(verified_facts)} passed / {len(rejected_facts)} rejected", expanded=False):
             col_pass, col_fail = st.columns(2)
 
