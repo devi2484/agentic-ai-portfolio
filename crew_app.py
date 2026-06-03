@@ -6,7 +6,7 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 from ddgs import DDGS
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from urllib.parse import urlparse
 
@@ -17,9 +17,9 @@ load_dotenv()
 GROQ_KEY = os.getenv("GROQ_KEY") or st.secrets.get("GROQ_KEY", "")
 llm = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant", temperature=0.1)
 
-st.set_page_config(page_title="Strategic Intelligence Engine", page_icon="♟️", layout="wide")
-st.title("♟️ Strategic Intelligence Engine")
-st.markdown("**Decision-Support Platform** · Evidence-Backed · Root Cause Reasoning · Options Analysis")
+st.set_page_config(page_title="Strategic Intelligence Engine", page_icon="⚖️", layout="wide")
+st.title("⚖️ Strategic Intelligence Engine")
+st.markdown("**Expert Reasoning System** · Strict Evidence Validation · Anti-Hallucination · Decision Support")
 st.divider()
 
 # ==========================================
@@ -83,22 +83,6 @@ def calculate_entity_confidence(entity) -> tuple[int, str]:
         explanation += f" — Issues: {', '.join(reasons)}"
     return max(0, score), explanation
 
-def calculate_health_score(verified_facts: list, signals: list, competitors: list) -> int:
-    score = 50
-    for f in verified_facts:
-        if f.category == "Profitability":   score += 5 if f.strategic_impact >= 9 else 2
-        if f.category == "Growth":          score += 4 if f.strategic_impact >= 9 else 1
-        if f.category == "Competitive Advantage": score += 3
-        if f.category == "Competitive Threat":    score -= 2
-    for s in signals:
-        if s.urgency == "IMMEDIATE":  score -= 8
-        elif s.urgency == "90-DAY":   score -= 4
-        if any(t in s.signal_type for t in ["Threat","Erosion","Compression","Regulatory","Disruption"]): score -= 3
-        if any(t in s.signal_type for t in ["Opportunity","Strengthening","Inflection"]): score += 3
-    for c in competitors:
-        if any(t in c.threat_type for t in ["Largest Threat","Fastest Growing"]): score -= 5
-    return max(0, min(100, score))
-
 def calculate_report_confidence(verified_facts: list, total_facts: int) -> int:
     if not verified_facts or total_facts == 0:
         return 15
@@ -108,10 +92,10 @@ def calculate_report_confidence(verified_facts: list, total_facts: int) -> int:
 
 def get_evidence_sufficiency(verified_facts: list, report_confidence: int) -> tuple[bool, str]:
     if len(verified_facts) < MIN_VERIFIED_FACTS:
-        return False, f"Only {len(verified_facts)} fact(s) passed validation. Recommendations will be speculative."
+        return False, f"Only {len(verified_facts)} fact(s) passed validation. Insufficient evidence."
     if report_confidence < MIN_REPORT_CONFIDENCE:
         return False, f"Report confidence {report_confidence}% is below threshold. Evidence quality is low."
-    return True, "Evidence sufficient for reliable recommendations."
+    return True, "Evidence sufficient for reliable conclusions."
 
 # ==========================================
 # 4. SEARCH
@@ -158,7 +142,7 @@ def invoke_json(prompt: str) -> dict:
     return json.loads(text)
 
 # ==========================================
-# 6. PYDANTIC MODELS (Updated for Strategy Layer)
+# 6. PYDANTIC MODELS
 # ==========================================
 class EntityProfile(BaseModel):
     canonical_name: str
@@ -222,56 +206,35 @@ class CompetitorIntel(BaseModel):
     advantage_summary: str
     recommended_response: str
 
-# NEW STRATEGY LAYER MODELS
-class RootCauseAnalysis(BaseModel):
-    fact: str
-    root_cause: str
-    temporary_or_structural: str
-    confidence: str
+# --- EXPERT REASONING MODELS ---
+class ObservationAnalysis(BaseModel):
+    observation: str = Field(description="The key factual observation.")
+    root_cause: str = Field(description="Why this occurred and conditions enabling it.")
+    structural_or_temporary: str = Field(description="Is this permanent or a temporary blip?")
+    implication: str = Field(description="Why this matters and what could change as a result.")
 
-class StrategicTheme(BaseModel):
-    theme: str
-    supporting_facts: List[str]
-    why_it_matters: str
-
-class CompetitiveImplication(BaseModel):
-    theme: str
-    competitive_implication: str
-    winning_capability: str
-    risk_capability: str
-
-class StrategicOption(BaseModel):
+class OptionEvaluation(BaseModel):
     option_name: str
-    description: str
     benefits: str
     risks: str
-    resource_requirements: str
-    strategic_fit: str
+    trade_offs: str
+    evidence_support: str
 
-class OptionsAnalysis(BaseModel):
-    theme: str
-    options: List[StrategicOption]
+class StrategicDecision(BaseModel):
+    recommended_decision: str
+    why_selected: str = Field(description="Why this option was chosen based on evidence.")
+    why_alternatives_rejected: str = Field(description="Why other evaluated options were discarded.")
+    supporting_evidence: str = Field(description="The exact evidence tracing back to the source.")
+    specific_risks: str = Field(description="Risks of executing this decision.")
 
-class RecommendedAction(BaseModel):
-    action: str
-    why_this_action: str
-    why_now: str
-    why_not_alternatives: str
-    supporting_evidence: List[str]
-    supporting_theme: str
-    expected_benefit: str
-    key_risk: str
-
-class ChiefStrategyBrief(BaseModel):
-    company_health_score: int
-    report_confidence: int
-    evidence_sufficiency: str
-    entity_context: str
-    root_causes: List[RootCauseAnalysis]
-    strategic_themes: List[StrategicTheme]
-    competitive_implications: List[CompetitiveImplication]
-    options_considered: List[OptionsAnalysis]
-    recommended_actions: List[RecommendedAction]
+class DecisionIntelligenceBrief(BaseModel):
+    evidence_sufficiency: str = Field(description="Explicitly state if evidence is sufficient to make decisions.")
+    evidence_summary: List[str] = Field(description="List of the core verified facts relied upon.")
+    key_observations: List[ObservationAnalysis]
+    options_considered: List[OptionEvaluation]
+    recommended_decisions: List[StrategicDecision]
+    uncertainties: List[str] = Field(description="Explicitly state what is unknown, missing, or speculative.")
+    confidence_assessment: str = Field(description="Assessment of confidence strictly reflecting evidence quality, not confidence of expression.")
 
 # ==========================================
 # 7. PIPELINE AGENTS
@@ -283,7 +246,6 @@ FACT_CATEGORIES = [
 
 def run_entity_resolution(company: str, raw_context: str) -> EntityProfile:
     prompt = f"""You are an Entity Resolution Specialist. Identify exactly which company the search results describe.
-
 Return a JSON object:
 {{
   "canonical_name": "official registered name e.g. FSN E-Commerce Ventures Ltd (Nykaa)",
@@ -295,7 +257,6 @@ Return a JSON object:
   "known_competitors": "e.g. Purplle — or Unknown",
   "contamination_warnings": "None detected — OR describe results about a different entity"
 }}
-
 Company queried: {company}
 Search context: {raw_context[:1500]}"""
     try:
@@ -309,16 +270,8 @@ Search context: {raw_context[:1500]}"""
             contamination_warnings="Entity resolution failed — verify facts manually"
         )
 
-def run_researcher(company: str, entity: EntityProfile, raw_context: str,
-                   evidence_warning: str) -> List[IntelligenceFact]:
-    prompt = f"""You are a Goldman Sachs Research Analyst extracting decision-relevant intelligence for {entity.canonical_name}.
-
-Entity context:
-- Industry: {entity.industry} | Sector: {entity.sector} | Market: {entity.primary_market}
-- Business model: {entity.business_model}
-- Known competitors: {entity.known_competitors}
-
-PRIMARY FILTER — Before accepting any fact, answer: "Could this information change a decision?" If NO — reject it.
+def run_researcher(company: str, entity: EntityProfile, raw_context: str) -> List[IntelligenceFact]:
+    prompt = f"""You are a Fact Extraction System. Extract highly specific, verifiable data for {entity.canonical_name}.
 
 Return a JSON object:
 {{
@@ -329,8 +282,8 @@ Return a JSON object:
       "root_cause": "WHY did this happen? Underlying cause, not description.",
       "business_driver": "what business mechanism produced this outcome?",
       "strategic_implication": "what does this mean for competitive position?",
-      "is_structural": "Structural (permanent) or Temporary (blip) — explain briefly",
-      "why_it_matters": "why would this change a board decision?",
+      "is_structural": "Structural or Temporary",
+      "why_it_matters": "why would this change a decision?",
       "decision_relevance": "what specific decision could this change?",
       "board_relevance": 9,
       "strategic_impact": 9,
@@ -341,11 +294,7 @@ Return a JSON object:
     }}
   ]
 }}
-
-Return EXACTLY 6 facts — one per category.
-HARD REJECT: Founding dates, awards, PR, old launches, generic trends.
-{f"DATA WARNING: {evidence_warning}" if evidence_warning else ""}
-
+Return EXACTLY 6 facts.
 Raw Context:
 {raw_context}"""
     try:
@@ -356,7 +305,6 @@ Raw Context:
             except Exception: continue
         return facts
     except Exception as e:
-        st.warning(f"Researcher error: {e}")
         return []
 
 def run_hard_gate_validation(facts: List[IntelligenceFact]) -> List[ValidatedFact]:
@@ -378,11 +326,9 @@ def run_hard_gate_validation(facts: List[IntelligenceFact]) -> List[ValidatedFac
         ))
     return verified
 
-def run_competitor_intel(company: str, entity: EntityProfile, raw_context: str, evidence_sufficient: bool) -> List[CompetitorIntel]:
-    prompt = f"""You are a Competitive Intelligence Specialist analysing {entity.canonical_name}.
+def run_competitor_intel(company: str, entity: EntityProfile, raw_context: str) -> List[CompetitorIntel]:
+    prompt = f"""You are a Competitive Intelligence extraction system.
 Known competitors: {entity.known_competitors}
-
-Explain WHY competitors are succeeding or struggling. Focus on capabilities.
 Return a JSON object:
 {{
   "competitors": [
@@ -408,21 +354,18 @@ Raw Context:
             except Exception: continue
         return comps
     except Exception as e:
-        st.warning(f"Competitor intel error: {e}")
         return []
 
-def run_signal_detector(company: str, verified_facts: List[ValidatedFact], evidence_sufficient: bool) -> List[StrategicSignal]:
+def run_signal_detector(company: str, verified_facts: List[ValidatedFact]) -> List[StrategicSignal]:
     if not verified_facts: return []
     fact_text = "\n".join([f"[{f.category}] FACT: {f.fact}\nRoot Cause: {f.root_cause}\nImplication: {f.strategic_implication}" for f in verified_facts])
-
-    prompt = f"""You are a Strategic Signal Detector for {company}.
-CRITICAL RULE: A signal must explain WHY a fact matters — not restate the fact.
+    prompt = f"""You are a Strategic Signal Detector. A signal must explain WHY a fact matters — not restate the fact.
 Return a JSON object:
 {{
   "signals": [
     {{
-      "signal_type": "one of: Emerging Threat, Emerging Opportunity, Strategic Inflection, Capital Shift, Competitive Surprise, Moat Erosion, Moat Strengthening, Regulatory Risk, Margin Compression, Pricing Pressure, Technology Disruption",
-      "signal": "what is changing — the inflection, not the fact",
+      "signal_type": "one of: Emerging Threat, Emerging Opportunity, Strategic Inflection, Capital Shift, Competitive Surprise, Moat Erosion, Moat Strengthening, Regulatory Risk, Margin Compression, Pricing Pressure",
+      "signal": "what is changing — the inflection",
       "urgency": "IMMEDIATE, 90-DAY, 6-MONTH, WATCH",
       "root_cause": "underlying driver",
       "implication": "specific decision affected",
@@ -443,68 +386,39 @@ Validated Facts:
             except Exception: continue
         return signals
     except Exception as e:
-        st.warning(f"Signal detector error: {e}")
         return []
 
-
-# --- AGENT 5: The Strategy Layer (CSO Level) ---
-def run_strategist(
+# --- AGENT 5: EXPERT REASONING SYSTEM ---
+def run_expert_reasoner(
     company: str, entity: EntityProfile, verified_facts: List[ValidatedFact], 
     signals: List[StrategicSignal], competitors: List[CompetitorIntel],
-    health_score: int, report_confidence: int, evidence_sufficient: bool, sufficiency_message: str
-) -> Optional[ChiefStrategyBrief]:
+    evidence_sufficient: bool, sufficiency_message: str
+) -> Optional[DecisionIntelligenceBrief]:
 
-    fact_text = "\n".join([f"- {f.fact} (Confidence: {f.confidence}%)" for f in verified_facts]) if verified_facts else "INSUFFICIENT EVIDENCE."
+    fact_text = "\n".join([f"- {f.fact} (Source Trust: {f.source_trust})" for f in verified_facts]) if verified_facts else "INSUFFICIENT EVIDENCE."
     signal_text = "\n".join([f"- {s.signal} ({s.urgency})" for s in signals]) or "No validated signals."
     competitor_text = "\n".join([f"- {c.competitor_name}: {c.threat_summary}" for c in competitors]) or "No competitor data."
 
-    sufficiency_instruction = f'  "evidence_sufficiency": "SPECULATIVE — {sufficiency_message}",' if not evidence_sufficient else f'  "evidence_sufficiency": "Sufficient — {sufficiency_message}",'
+    prompt = f"""You are an expert reasoning system. Your purpose is to transform evidence into reliable decisions.
+You are not a writer. You are not a summarizer. You are a decision-support system.
 
-    prompt = f"""You are a Fortune 500 Chief Strategy Officer, former McKinsey Senior Partner, and Board Advisor.
-Your job is NOT to summarize facts. Your job is to transform verified intelligence into executive decisions.
-
-You will receive:
-1. Verified facts
-2. Strategic signals
-3. Competitor intelligence
-
-Use ONLY this information. Never invent facts. Never invent metrics.
+==================================================
+PRIMARY OBJECTIVE
+Maximize: Accuracy, Reliability, Evidence quality, Reasoning quality, Decision quality, Transparency.
+Minimize: Assumptions, Hallucinations, Unsupported conclusions, Generic recommendations, Speculative reasoning.
 
 ==================================================
 CORE PRINCIPLE
-==================================================
-Facts are not strategy. Signals are not strategy.
-Strategy begins when you determine WHY something happened, WHY it matters, and WHAT management should do.
+Every conclusion must be supported by evidence. Every recommendation must be supported by conclusions.
 
 ==================================================
-STEP 1 — ROOT CAUSE ANALYSIS
-==================================================
-For every verified fact determine: What caused it? Temporary or structural? Which capability created it?
+REASONING CHAIN
+Always follow: Evidence → Observation → Root Cause → Implication → Options → Decision → Risk Assessment.
+Do not skip steps. If a step cannot be completed reliably: Stop. State uncertainty.
 
 ==================================================
-STEP 2 — STRATEGIC THEME EXTRACTION
-==================================================
-Group facts into themes (e.g., Margin Expansion, Moat Erosion, Capital Allocation Shift).
-Themes must emerge from evidence.
-
-==================================================
-STEP 3 — COMPETITIVE IMPLICATIONS
-==================================================
-For each theme determine: Which competitor benefits/is threatened? Which capability becomes winning/risk?
-
-==================================================
-STEP 4 — OPTIONS ANALYSIS
-==================================================
-Before creating recommendations generate options (A, B, C). Evaluate benefits, risks, resource requirements, and fit. Evaluate alternatives first.
-
-==================================================
-STEP 5 — RECOMMENDATION GENERATION
-==================================================
-Generate recommendations only after evaluating alternatives.
-Every recommendation must answer: Why this action? Why now? Why not the alternatives?
-
-FORBIDDEN RECOMMENDATIONS: Improve innovation, Improve efficiency, Focus on customers, Increase marketing.
-If the recommendation could be given to any random company without modification: Reject it.
+SUFFICIENCY TEST & UNCERTAINTY HANDLING
+If evidence is missing, state explicit uncertainties. Never invent facts, causes, metrics, or timelines.
 
 ==================================================
 JSON OUTPUT FORMAT (STRICT)
@@ -512,60 +426,40 @@ JSON OUTPUT FORMAT (STRICT)
 Escape all line breaks as '\\n'. Do NOT escape single quotes (\\'). 
 
 {{
-  "company_health_score": {health_score},
-  "report_confidence": {report_confidence},
-{sufficiency_instruction}
-  "entity_context": "{entity.canonical_name} | {entity.industry} | {entity.primary_market}",
-  "root_causes": [
+  "evidence_sufficiency": "{'Sufficient' if evidence_sufficient else 'Insufficient'}: {sufficiency_message}",
+  "evidence_summary": [
+    "Fact 1", "Fact 2"
+  ],
+  "key_observations": [
     {{
-      "fact": "",
+      "observation": "",
       "root_cause": "",
-      "temporary_or_structural": "",
-      "confidence": ""
-    }}
-  ],
-  "strategic_themes": [
-    {{
-      "theme": "",
-      "supporting_facts": [],
-      "why_it_matters": ""
-    }}
-  ],
-  "competitive_implications": [
-    {{
-      "theme": "",
-      "competitive_implication": "",
-      "winning_capability": "",
-      "risk_capability": ""
+      "structural_or_temporary": "",
+      "implication": ""
     }}
   ],
   "options_considered": [
     {{
-      "theme": "",
-      "options": [
-        {{
-          "option_name": "",
-          "description": "",
-          "benefits": "",
-          "risks": "",
-          "resource_requirements": "",
-          "strategic_fit": ""
-        }}
-      ]
+      "option_name": "",
+      "benefits": "",
+      "risks": "",
+      "trade_offs": "",
+      "evidence_support": ""
     }}
   ],
-  "recommended_actions": [
+  "recommended_decisions": [
     {{
-      "action": "",
-      "why_this_action": "",
-      "why_now": "",
-      "why_not_alternatives": "",
-      "supporting_evidence": [],
-      "supporting_theme": "",
-      "expected_benefit": "",
-      "key_risk": ""
+      "recommended_decision": "",
+      "why_selected": "",
+      "why_alternatives_rejected": "",
+      "supporting_evidence": "",
+      "specific_risks": ""
     }}
-  ]
+  ],
+  "uncertainties": [
+    "What is unknown, missing, or speculative based on current evidence."
+  ],
+  "confidence_assessment": "Assessment of confidence strictly reflecting evidence quality, not confidence of expression."
 }}
 
 Verified Evidence:
@@ -579,195 +473,147 @@ Competitor Intelligence:
 
     try:
         data = invoke_json(prompt)
-        return ChiefStrategyBrief(**data)
+        return DecisionIntelligenceBrief(**data)
     except Exception as e:
-        st.error(f"Strategist error: {e}")
+        st.error(f"Reasoning Engine error: {e}")
         return None
 
 # ==========================================
 # 8. STREAMLIT UI
 # ==========================================
-company = st.text_input("Target Company:", placeholder="e.g. Zomato, Reliance, Tesla, Nykaa...")
+company = st.text_input("Target Company / Entity:", placeholder="e.g. Zomato, Reliance, Tesla...")
 
-if st.button("Run Strategic Analysis", type="primary"):
+if st.button("Run Expert Reasoning Analysis", type="primary"):
     if not company:
-        st.error("Please enter a company name.")
+        st.error("Please enter an entity name.")
     else:
-        with st.status(f"Compiling Decision Intelligence on {company}...", expanded=True) as status:
+        with st.status(f"Executing Decision Intelligence Pipeline for {company}...", expanded=True) as status:
 
             st.write("📡 Search...")
             raw_context = run_enhanced_search(company)
             if not raw_context:
                 st.error("Search returned no data.")
                 st.stop()
-            time.sleep(2)
+            time.sleep(1)
 
             st.write("🔍 Entity Resolution...")
             entity = run_entity_resolution(company, raw_context)
             entity_conf, entity_conf_msg = calculate_entity_confidence(entity)
             if entity_conf < ENTITY_CONFIDENCE_THRESHOLD:
                 st.warning(f"⚠️ **Low Entity Confidence** — {entity_conf_msg}")
-            time.sleep(2)
+            time.sleep(1)
 
-            st.write("📊 Researcher — extracting facts & structural drivers...")
-            raw_facts = run_researcher(company, entity, raw_context[:3000], "")
+            st.write("📊 Fact Extraction System...")
+            raw_facts = run_researcher(company, entity, raw_context[:3000])
 
-            st.write("🔒 Hard-Gate Validation...")
+            st.write("🔒 Hard-Gate Evidence Validation...")
             verified_facts = run_hard_gate_validation(raw_facts)
 
             report_confidence_prelim = calculate_report_confidence(verified_facts, len(raw_facts))
             evidence_sufficient, sufficiency_message = get_evidence_sufficiency(verified_facts, report_confidence_prelim)
             if not evidence_sufficient:
                 st.warning(f"⚠️ **Evidence Warning:** {sufficiency_message}")
-            time.sleep(2)
+            time.sleep(1)
 
-            st.write("🎯 Competitor Intelligence...")
-            competitors = run_competitor_intel(company, entity, raw_context[:2000], evidence_sufficient)
-            time.sleep(2)
+            st.write("🎯 Competitor Intelligence System...")
+            competitors = run_competitor_intel(company, entity, raw_context[:2000])
+            time.sleep(1)
 
             st.write("🔭 Signal Detector...")
-            signals = run_signal_detector(company, verified_facts, evidence_sufficient)
+            signals = run_signal_detector(company, verified_facts)
+            time.sleep(1)
 
-            health_score      = calculate_health_score(verified_facts, signals, competitors)
-            report_confidence = calculate_report_confidence(verified_facts, len(raw_facts))
-            time.sleep(2)
-
-            st.write("📋 Chief Strategy Officer — Options Analysis & Root Cause Synthesis...")
-            final_brief = run_strategist(
+            st.write("⚖️ Expert Reasoning System — Executing analytical chain...")
+            final_brief = run_expert_reasoner(
                 company, entity, verified_facts, signals, competitors,
-                health_score, report_confidence, evidence_sufficient, sufficiency_message
+                evidence_sufficient, sufficiency_message
             )
 
             status.update(label="Analysis Complete", state="complete")
 
         if not final_brief:
-            st.error("Strategist failed. Try again.")
+            st.error("Reasoning Engine failed. Try again.")
             st.stop()
 
         # ==========================================
-        # DISPLAY: PIPELINE METRICS
-        # ==========================================
-        if not evidence_sufficient:
-            st.error(f"⚠️ **SPECULATIVE REPORT** — {sufficiency_message}\n\nVerify against primary sources before acting.")
-        else:
-            st.success("✅ Evidence sufficient for reliable recommendations.")
-
-        total  = len(raw_facts)
-        passed = len(verified_facts)
-        rate   = int(passed / total * 100) if total else 0
-
-        st.subheader("🛡️ Intelligence Pipeline Metrics")
-        m1,m2,m3,m4,m5,m6 = st.columns(6)
-        m1.metric("Facts Extracted", total)
-        m2.metric("Passed Hard Gate", passed)
-        m3.metric("Gate Pass Rate", f"{rate}%")
-        m4.metric("Signals", len(signals))
-        m5.metric("Competitors", len(competitors))
-        m6.metric("Entity Confidence", f"{entity_conf}%")
-
-        # ==========================================
-        # DISPLAY: STRATEGY LAYER (NEW FORMAT)
+        # DISPLAY: EXPERT REASONING LAYER
         # ==========================================
         st.divider()
-        h1, h2, h3 = st.columns([3, 1, 1])
-        with h1: st.header(f"Strategy & Execution Plan — {entity.canonical_name.upper()}")
-        with h2: st.metric("Health Score", f"{final_brief.company_health_score}/100")
-        with h3: st.metric("Report Confidence", f"{final_brief.report_confidence}%")
-        st.caption(f"Entity Context: {final_brief.entity_context}")
+        st.header(f"Decision Intelligence Brief — {entity.canonical_name.upper()}")
+        st.caption(f"**Entity Context:** {entity.industry} | {entity.sector} | {entity.primary_market}")
 
-        # 1. ROOT CAUSE ANALYSIS
-        st.markdown("### 1. Root Cause Analysis")
-        for rc in final_brief.root_causes:
+        if not evidence_sufficient:
+            st.error(f"⚠️ **EVIDENCE CHECK FAILED**\n{final_brief.evidence_sufficiency}")
+        else:
+            st.success(f"✅ **EVIDENCE CHECK PASSED**\n{final_brief.evidence_sufficiency}")
+
+        # 1. EVIDENCE SUMMARY
+        st.markdown("### 1. Evidence Summary")
+        with st.container(border=True):
+            for ev in final_brief.evidence_summary:
+                st.markdown(f"- {ev}")
+
+        # 2. KEY OBSERVATIONS & ROOT CAUSES
+        st.markdown("### 2. Key Observations & Root Causes")
+        for obs in final_brief.key_observations:
             with st.container(border=True):
-                st.markdown(f"**Fact:** {rc.fact}")
-                col1, col2, col3 = st.columns(3)
-                col1.markdown(f"**Root Cause:**\n{rc.root_cause}")
-                col2.markdown(f"**Driver Type:**\n{rc.temporary_or_structural}")
-                col3.markdown(f"**Confidence:**\n{rc.confidence}")
+                st.info(f"**Observation:** {obs.observation}")
+                c1, c2 = st.columns([2, 1])
+                c1.markdown(f"**Root Cause:** {obs.root_cause}")
+                c2.markdown(f"**Nature:** {obs.structural_or_temporary}")
+                st.markdown(f"**Implication:** {obs.implication}")
 
-        # 2. STRATEGIC THEMES
-        st.markdown("### 2. Strategic Themes")
-        for theme in final_brief.strategic_themes:
-            with st.container(border=True):
-                st.subheader(f"📌 {theme.theme}")
-                st.markdown(f"**Why it matters:** {theme.why_it_matters}")
-                with st.expander("Supporting Facts"):
-                    for fact in theme.supporting_facts:
-                        st.markdown(f"- {fact}")
-
-        # 3. COMPETITIVE IMPLICATIONS
-        if final_brief.competitive_implications:
-            st.markdown("### 3. Competitive Implications")
-            for imp in final_brief.competitive_implications:
-                with st.container(border=True):
-                    st.markdown(f"**Theme:** {imp.theme}")
-                    st.warning(f"**Implication:** {imp.competitive_implication}")
-                    c1, c2 = st.columns(2)
-                    c1.success(f"**Winning Capability:** {imp.winning_capability}")
-                    c2.error(f"**Risk Capability:** {imp.risk_capability}")
-
-        # 4. OPTIONS ANALYSIS
-        st.markdown("### 4. Options Analysis")
-        for opt_group in final_brief.options_considered:
-            st.markdown(f"#### Evaluating: {opt_group.theme}")
-            tabs = st.tabs([opt.option_name for opt in opt_group.options])
-            for idx, tab in enumerate(tabs):
-                with tab:
-                    opt = opt_group.options[idx]
-                    st.markdown(f"**Description:** {opt.description}")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.success(f"**Benefits:** {opt.benefits}")
-                        st.info(f"**Strategic Fit:** {opt.strategic_fit}")
-                    with c2:
-                        st.error(f"**Risks:** {opt.risks}")
-                        st.warning(f"**Resource Requirements:** {opt.resource_requirements}")
-
-        # 5. RECOMMENDED ACTIONS
-        st.markdown("### 5. Final Recommendations")
-        for i, action in enumerate(final_brief.recommended_actions, 1):
-            with st.container(border=True):
-                st.subheader(f"Recommendation #{i}: {action.action}")
-                
-                # The "Why" Matrix
-                c1, c2, c3 = st.columns(3)
+        # 3. OPTIONS ANALYSIS
+        st.markdown("### 3. Options Analysis")
+        tabs = st.tabs([opt.option_name for opt in final_brief.options_considered])
+        for idx, tab in enumerate(tabs):
+            with tab:
+                opt = final_brief.options_considered[idx]
+                c1, c2 = st.columns(2)
                 with c1:
-                    st.info("**Why This Action?**")
-                    st.markdown(action.why_this_action)
+                    st.success(f"**Benefits:** {opt.benefits}")
+                    st.info(f"**Evidence Support:** {opt.evidence_support}")
                 with c2:
-                    st.warning("**Why Now?**")
-                    st.markdown(action.why_now)
-                with c3:
-                    st.error("**Why Not Alternatives?**")
-                    st.markdown(action.why_not_alternatives)
-                
-                st.divider()
-                
-                # The "Impact" Matrix
-                c4, c5 = st.columns(2)
-                with c4:
-                    st.markdown(f"**Expected Benefit:** {action.expected_benefit}")
-                    st.markdown(f"**Key Risk:** {action.key_risk}")
-                with c5:
-                    st.markdown(f"**Supporting Theme:** {action.supporting_theme}")
-                    with st.expander("View Supporting Evidence"):
-                        for ev in action.supporting_evidence:
-                            st.markdown(f"- {ev}")
+                    st.error(f"**Risks:** {opt.risks}")
+                    st.warning(f"**Trade-offs:** {opt.trade_offs}")
+
+        # 4. RECOMMENDED DECISIONS
+        st.markdown("### 4. Recommended Decisions")
+        for i, dec in enumerate(final_brief.recommended_decisions, 1):
+            with st.container(border=True):
+                st.subheader(f"Decision #{i}: {dec.recommended_decision}")
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("**Why Selected:**")
+                    st.success(dec.why_selected)
+                    st.markdown("**Why Alternatives Rejected:**")
+                    st.warning(dec.why_alternatives_rejected)
+                with c2:
+                    st.markdown("**Supporting Evidence:**")
+                    st.info(dec.supporting_evidence)
+                    st.markdown("**Specific Risks:**")
+                    st.error(dec.specific_risks)
+
+        # 5. UNCERTAINTIES & CONFIDENCE
+        st.markdown("### 5. Risk & Uncertainty Assessment")
+        with st.container(border=True):
+            st.error("**Known Uncertainties & Missing Evidence:**")
+            for unc in final_brief.uncertainties:
+                st.markdown(f"- {unc}")
+            st.divider()
+            st.markdown("**System Confidence Assessment:**")
+            st.markdown(final_brief.confidence_assessment)
 
         # Export
         st.divider()
         export = {
-            "company": company,
             "entity_profile": entity.model_dump(),
-            "pipeline_stats": {"extracted": total, "passed": passed, "rate_pct": rate},
             "verified_facts": [vf.model_dump() for vf in verified_facts],
-            "signals": [s.model_dump() for s in signals],
-            "competitor_intel": [c.model_dump() for c in competitors],
-            "strategy_brief": final_brief.model_dump(),
+            "reasoning_brief": final_brief.model_dump(),
         }
         st.download_button(
-            "Download Full Strategy Package (JSON)",
+            "Download Reasoning Package (JSON)",
             data=json.dumps(export, indent=2),
-            file_name=f"{company.replace(' ','_')}_strategy_brief.json",
+            file_name=f"{company.replace(' ','_')}_decision_intelligence.json",
             mime="application/json"
         )
