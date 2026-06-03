@@ -615,7 +615,7 @@ def run_enhanced_search(company: str) -> str:
                         f"CONTENT: {r.get('title','')} — {r.get('body','')}\n{'-'*40}"
                     )
     except Exception as e:
-        st.error(f"Filing ingestion execution failure: {e}")
+        st.error(f"Filing Ingestion Execution Failure: {e}")
     return "\n".join(results)
 
 # ==========================================
@@ -727,7 +727,7 @@ class DecisionIntelligenceBrief(BaseModel):
     confidence_assessment: Optional[str] = Field(default=None)
 
 # ==========================================
-# 7. PIPELINE AGENTS (FILING FOCUSED)
+# 7. PIPELINE AGENTS
 # ==========================================
 FACT_CATEGORIES = [
     "Profitability", "Growth", "Competitive Threat",
@@ -896,12 +896,15 @@ def run_expert_reasoner(
 
     prompt = f"""# SYSTEM INSTRUCTIONS: STRATEGIC REASONING MATRIX
 
+## ROLE
+You are a strict Evidence-Based Strategic Reasoning Engine parsing management transcripts and financial metrics.
+
 ## REQUIRED TRACEABILITY PATH
 [Filing Evidence] -> [Observation] -> [Root Cause] -> [Inference] -> [Theme] -> [Options] -> [Decision]
 
 ---
 ## GATE 1 — OBSERVATION PURITY
-Observations MUST only restate filing metrics without causal words (because, therefore, etc.) or forward-looking projections.
+Observations MUST only restate filing metrics without causal words (because, therefore, suggests, indicates, implies, means that) or forward-looking projections.
 Exact metric identity MUST be preserved (e.g., if filing cites PAT, use PAT; never switch to general profit labels).
 
 ## GATE 2 — ROOT CAUSE MANAGEMENT
@@ -911,13 +914,13 @@ Isolate institutional triggers. If evidence does not specify an operational caus
 Explain structural significance using industry language. Append uncertainty parameters (| CONFIRMED, | LIKELY, or | HYPOTHESIS). Must use strategic markers (pressure, moat, execution risk).
 
 ## GATE 4 — THEME REQUIREMENT
-Strategic Themes require min 2 observations tracking a continuous operational path. Otherwise label as EMERGING SIGNAL.
+Strategic Themes require min 2 observations tracking a continuous operational path. Otherwise label as EMERGING SIGNAL. Good names describe a pattern ("Margin Expansion Under Pressure"), bad names are bare category labels ("Revenue").
 
 ## GATE 5 — COMPETITIVE INTEGRITY
-Isolate competitor claims only if supported by reporting text. Do not generate parameters outside context.
+Isolate competitor claims only if supported by reporting text. If competitive evidence is unavailable, write exactly: INSUFFICIENT_COMPETITIVE_EVIDENCE.
 
 ## GATE 6 — STRATEGIC POSTURES
-Generate 3 distinct trajectories:
+Generate exactly 3 options: Conservative, Balanced, Aggressive.
 - Conservative = Protect existing base lines, maintain margin profile
 - Balanced     = Optimize cost structure, improve asset turns
 - Aggressive   = Deploy capital into new advantage channels, structural change
@@ -927,6 +930,7 @@ Recommending action paths missing explicit anchors (percentages, exact fiscal qu
 
 ## GATE 8 — DECISION LAYERING FORMAT
 Format: "Based on Obs: [...], Inf: [...], Theme: [...], Opt: [...]: [uniquely anchored execution step]"
+
 ---
 Filing Dataset Parameters: {'SUFFICIENT' if evidence_sufficient else 'INSUFFICIENT_EVIDENCE'} ({sufficiency_message})
 
@@ -938,7 +942,89 @@ Strategic Trends:
 
 Entity: {entity.canonical_name} | {entity.industry} | {entity.primary_market}
 
-OUTPUT STRICT JSON MATCHING THE REGISTERED SCHEMATICS PROFILED IN THE CONFIGURATIONS.
+OUTPUT STRICT JSON STRUCTURE EXACTLY MATCHING THE FORMAT PROFILE SPECIFIED BELOW:
+{{
+  "status": "{'SUFFICIENT' if evidence_sufficient else 'INSUFFICIENT_EVIDENCE'}",
+  "reason": "Execution parameters verified.",
+  "evidence_and_observation_log": [
+    {{
+      "evidence": "Paraphrase or quotation of the corporate data point",
+      "observation": "Pure restatement of the financial filing fact with no reasoning language",
+      "root_cause": "The structural operational root cause or UNKNOWN",
+      "inference": "Strategic corporate meaning statement | CONFIRMED/LIKELY/HYPOTHESIS",
+      "observation_purity_passed": true,
+      "inference_classified": true
+    }}
+  ],
+  "strategic_themes_and_signals": [
+    {{
+      "name": "Descriptive narrative trend trajectory name",
+      "type": "STRATEGIC THEME",
+      "traceability": ["Observation reference context mapping"]
+    }}
+  ],
+  "competitive_landscape": [
+    {{
+      "competitor": "Competitor entity name tracking from evidence context",
+      "advantage": "Advantage summary string or null",
+      "advantage_evidence": "Explicit document citation link or INSUFFICIENT_COMPETITIVE_EVIDENCE",
+      "vulnerability": "Vulnerability matrix assessment or null",
+      "vulnerability_evidence": "Explicit document citation link or INSUFFICIENT_COMPETITIVE_EVIDENCE"
+    }}
+  ],
+  "evaluated_options": [
+    {{
+      "option_type": "Conservative",
+      "option_strategy": "Protect existing position — description summary",
+      "description": "Granular deployment directive tailored explicitly to filing tracking context",
+      "traceability_chain": "Theme [X] -> Inference [Y] -> Observation [Z]",
+      "evidence_support_score": 5,
+      "strategic_fit_score": 5,
+      "opportunity_score": 5,
+      "urgency_score": 5,
+      "risk_score": 5,
+      "complexity_score": 5,
+      "composite_score": 0,
+      "generic_test_passed": "Yes",
+      "rejection_reason": null
+    }},
+    {{
+      "option_type": "Balanced",
+      "option_strategy": "Optimize existing position — description summary",
+      "description": "Granular deployment directive tailored explicitly to filing tracking context",
+      "traceability_chain": "Theme [X] -> Inference [Y] -> Observation [Z]",
+      "evidence_support_score": 5,
+      "strategic_fit_score": 5,
+      "opportunity_score": 5,
+      "urgency_score": 5,
+      "risk_score": 5,
+      "complexity_score": 5,
+      "composite_score": 0,
+      "generic_test_passed": "Yes",
+      "rejection_reason": null
+    }},
+    {{
+      "option_type": "Aggressive",
+      "option_strategy": "Create new strategic advantage — description summary",
+      "description": "Granular deployment directive tailored explicitly to filing tracking context",
+      "traceability_chain": "Theme [X] -> Inference [Y] -> Observation [Z]",
+      "evidence_support_score": 5,
+      "strategic_fit_score": 5,
+      "opportunity_score": 5,
+      "urgency_score": 5,
+      "risk_score": 5,
+      "complexity_score": 5,
+      "composite_score": 0,
+      "generic_test_passed": "Yes",
+      "rejection_reason": null
+    }}
+  ],
+  "recommended_decision": "Based on Obs: [...], Inf: [...], Theme: [...], Opt: [...]: [action path directive]",
+  "selected_option_type": "Conservative/Balanced/Aggressive",
+  "selection_rationale": "Explicit analysis of the mathematical score breakdown outcome.",
+  "contradicting_evidence": "Trace logs mismatch profile note or None",
+  "confidence_assessment": "Verification metrics processing overview."
+}}
 """
     try:
         data = invoke_json(prompt)
@@ -967,7 +1053,7 @@ if st.button("Run Evidence-Based Ingestion Pipeline", type="primary"):
                 st.stop()
             time.sleep(1)
 
-            st.write("🔍 Resolving legal corporate entity entity...")
+            st.write("🔍 Resolving legal corporate entity...")
             entity = run_entity_resolution(company, raw_context)
             entity_conf, entity_conf_msg = calculate_entity_confidence(entity)
             if entity_conf < ENTITY_CONFIDENCE_THRESHOLD:
@@ -1068,8 +1154,6 @@ if st.button("Run Evidence-Based Ingestion Pipeline", type="primary"):
                     st.markdown(f"**Management Action Cause:** `{log.root_cause or 'UNKNOWN'}`")
                 with c2:
                     inf = log.inference or ""
-                    classification = inf.split("|")[-1].strip().upper() if "|" in inf else "UNCLASSIFIED"
-                    badge_color = "green" if classification == "CONFIRMED" else "orange" if classification == "LIKELY" else "red" if classification == "HYPOTHESIS" else "gray"
                     st.markdown(f"**Structural Inference:** {inf}")
 
         # 3. STRATEGIC MANAGEMENT THEMES
@@ -1162,7 +1246,7 @@ if st.button("Run Evidence-Based Ingestion Pipeline", type="primary"):
             contradicting = final_brief.contradicting_evidence or "No reporting contradictions traced."
             st.info(contradicting)
 
-        # Export (Keeps confidence indicators in the raw data packet for audit purposes)
+        # Export
         st.divider()
         export = {
             "entity_profile": entity.model_dump(),
