@@ -7,7 +7,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from ddgs import DDGS
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
+from typing import List, Optional, Union
 from urllib.parse import urlparse
 
 # ==========================================
@@ -19,7 +19,7 @@ llm = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant", temperature=
 
 st.set_page_config(page_title="Strategic Intelligence Engine", page_icon="⚖️", layout="wide")
 st.title("⚖️ Strategic Intelligence Engine")
-st.markdown("**Expert Reasoning System** · Strict Evidence Validation · Anti-Hallucination · Decision Support")
+st.markdown("**Evidence-Based Reasoning Engine** · Strict Traceability · Decision Validation")
 st.divider()
 
 # ==========================================
@@ -56,36 +56,30 @@ def evaluate_trust(url: str) -> str:
 # 3. DETERMINISTIC SCORING
 # ==========================================
 def calculate_confidence(trust_label: str, board_relevance: int, strategic_impact: int) -> int:
-    trust_score = TRUST_SCORE_MAP.get(trust_label.strip(), 5)
+    # Bulletproof conversion to upper case to match the lookup keys cleanly
+    trust_score = TRUST_SCORE_MAP.get(trust_label.strip().upper(), 5)
     raw = (trust_score * 0.4) + (board_relevance * 0.3) + (strategic_impact * 0.3)
     return int((raw / 10) * 100)
 
 def calculate_entity_confidence(entity) -> tuple[int, str]:
     score = 100
     reasons = []
-    if entity.industry == "Unknown":
-        score -= 20; reasons.append("industry unknown")
-    if entity.sector == "Unknown":
-        score -= 10; reasons.append("sector unknown")
-    if entity.business_model == "Unknown":
-        score -= 15; reasons.append("business model unknown")
-    if entity.primary_market == "Unknown":
-        score -= 10; reasons.append("primary market unknown")
-    if entity.known_competitors == "Unknown":
-        score -= 10; reasons.append("competitors unknown")
+    if entity.industry == "Unknown": score -= 20; reasons.append("industry unknown")
+    if entity.sector == "Unknown": score -= 10; reasons.append("sector unknown")
+    if entity.business_model == "Unknown": score -= 15; reasons.append("business model unknown")
+    if entity.primary_market == "Unknown": score -= 10; reasons.append("primary market unknown")
+    if entity.known_competitors == "Unknown": score -= 10; reasons.append("competitors unknown")
+    
     contamination = entity.contamination_warnings.lower()
-    if "failed" in contamination:
-        score -= 25; reasons.append("entity resolution failed")
-    elif "none" not in contamination and contamination != "":
-        score -= 20; reasons.append(f"contamination risk: {entity.contamination_warnings}")
+    if "failed" in contamination: score -= 25; reasons.append("entity resolution failed")
+    elif "none" not in contamination and contamination != "": score -= 20; reasons.append(f"contamination risk: {entity.contamination_warnings}")
+    
     explanation = f"Entity confidence {score}%"
-    if reasons:
-        explanation += f" — Issues: {', '.join(reasons)}"
+    if reasons: explanation += f" — Issues: {', '.join(reasons)}"
     return max(0, score), explanation
 
 def calculate_report_confidence(verified_facts: list, total_facts: int) -> int:
-    if not verified_facts or total_facts == 0:
-        return 15
+    if not verified_facts or total_facts == 0: return 15
     gate_rate = len(verified_facts) / total_facts
     avg_conf  = sum(f.confidence for f in verified_facts) / len(verified_facts)
     return int((gate_rate * 0.4 + avg_conf / 100 * 0.6) * 100)
@@ -136,13 +130,14 @@ def invoke_json(prompt: str) -> dict:
     resp = llm.invoke(messages)
     text = resp.content.strip()
     if text.startswith("```"):
-        text = text.split("```")[1]
+        text = text.split("
+```")[1]
         if text.startswith("json"): text = text[4:]
     text = text.strip().rstrip("```").strip()
     return json.loads(text)
 
 # ==========================================
-# 6. PYDANTIC MODELS (STRICT REASONING CHAIN)
+# 6. PYDANTIC MODELS (BULLETPROOF STRATEGIC CHAINS)
 # ==========================================
 class EntityProfile(BaseModel):
     canonical_name: str
@@ -179,55 +174,42 @@ class StrategicSignal(BaseModel):
     urgency: str
     implication: str
 
-# --- EXPERT REASONING MODELS ---
+# --- REASONING SUB-MODELS (FULLY OPTIONALIZED) ---
 
-class RootCauseValidation(BaseModel):
-    cause: str = Field(description="The underlying mechanism driving the observation.")
-    classification: str = Field(description="Must be exactly one of: CONFIRMED, LIKELY, HYPOTHESIS, UNKNOWN")
-    supporting_evidence: str = Field(description="Exact fact or data point validating this cause.")
-    confidence: str = Field(description="Score out of 100, justified by evidence quality.")
+class EvidenceLog(BaseModel):
+    evidence: Optional[str] = None
+    observation: Optional[str] = None
+    root_cause_and_class: Optional[str] = Field(default=None, description="Format: [Cause] | [CONFIRMED/LIKELY/HYPOTHESIS/UNKNOWN]")
 
-class StrategicTheme(BaseModel):
-    theme: str = Field(description="The larger pattern indicated by multiple observations.")
-    supporting_observations: List[str] = Field(description="List of isolated facts that together form this theme.")
-    confidence: str = Field(description="Confidence level in this theme based on evidence synthesis.")
+class ThemeSignal(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = Field(default=None, description="Must be STRATEGIC THEME or EMERGING SIGNAL")
+    traceability: List[str] = Field(default_factory=list, description="Observations/facts directly supporting this")
 
-class CompetitiveImplication(BaseModel):
-    competitor_name: str
-    capability_advantage: str = Field(description="Specific capability creating an advantage.")
-    capability_vulnerability: str = Field(description="Specific capability creating vulnerability.")
-    advantage_durability: str = Field(description="Structural/Durable or Temporary?")
-    supporting_evidence: str = Field(description="Evidence linking this competitive reality.")
+class CompetitiveLandscape(BaseModel):
+    competitor: Optional[str] = None
+    advantage: Optional[str] = None
+    advantage_evidence: Optional[str] = None
+    vulnerability: Optional[str] = None
+    vulnerability_evidence: Optional[str] = None
 
-class OptionEvaluation(BaseModel):
-    option_name: str
-    benefits: str
-    risks: str
-    complexity: str = Field(description="Assessment of implementation difficulty.")
-    resource_requirements: str = Field(description="Capital, time, or talent needed.")
-    evidence_support: str = Field(description="Evidence proving this option is viable.")
-
-class StrategicDecision(BaseModel):
-    recommended_decision: str
-    why_selected: str = Field(description="Why this is superior, linked strictly to evidence.")
-    why_alternatives_rejected: str = Field(description="Why other evaluated options were discarded.")
-    supporting_evidence: str = Field(description="The exact evidence tracing back to the source.")
-    contradicting_evidence: str = Field(description="Evidence that challenges this decision.")
-    assumptions: str = Field(description="Assumptions made in selecting this recommendation.")
-    specific_risks: str = Field(description="Risks of executing this decision.")
+class EvaluatedOption(BaseModel):
+    description: Optional[str] = None
+    traceability_chain: Union[str, List[str], None] = Field(default=None, description="Supported by Theme [X] -> Root Cause [Y] -> Observation [Z] -> Evidence [A]")
+    generic_test_passed: Optional[str] = Field(default=None, description="Yes or No")
 
 class DecisionIntelligenceBrief(BaseModel):
     status: str = Field(description="Must be exactly 'SUFFICIENT' or 'INSUFFICIENT_EVIDENCE'")
-    reason: str = Field(description="Explanation of the sufficiency status.")
-    evidence_summary: List[str] = Field(description="List of the core verified facts relied upon.")
-    observations: List[str] = Field(description="Factual observations (WHAT happened, NOT why).")
-    root_causes: List[RootCauseValidation] = Field(description="Validation of why things occurred.")
-    strategic_themes: List[StrategicTheme] = Field(description="Patterns emerging from multiple observations.")
-    competitive_implications: List[CompetitiveImplication]
-    options_considered: List[OptionEvaluation]
-    recommended_decisions: List[StrategicDecision]
-    uncertainties: List[str] = Field(description="Explicitly state what is unknown, missing, or speculative.")
-    confidence_assessment: str = Field(description="Assessment of confidence strictly reflecting evidence quality, inputs used, and weighting logic.")
+    reason: Optional[str] = Field(default=None, description="Explanation of data sufficiency state.")
+    
+    evidence_and_observation_log: List[EvidenceLog] = Field(default_factory=list)
+    strategic_themes_and_signals: List[ThemeSignal] = Field(default_factory=list)
+    competitive_landscape: List[CompetitiveLandscape] = Field(default_factory=list)
+    evaluated_options: List[EvaluatedOption] = Field(default_factory=list)
+    
+    recommended_decision: Optional[str] = Field(default=None)
+    contradicting_evidence: Optional[str] = Field(default=None)
+    confidence_assessment: Optional[str] = Field(default=None)
 
 # ==========================================
 # 7. PIPELINE AGENTS
@@ -265,15 +247,18 @@ Search context: {raw_context[:1500]}"""
 
 def run_researcher(company: str, entity: EntityProfile, raw_context: str) -> List[IntelligenceFact]:
     prompt = f"""You are a Fact Extraction System. Extract highly specific, verifiable data for {entity.canonical_name}.
+
+CRITICAL INSTRUCTION: You must preserve data traceability. For every fact you extract, look closely at the "SOURCE:" and "TRUST:" labels directly preceding it in the Raw Context block. Copy the corresponding URL into "source_url" and the exact trust string ("HIGH TRUST", "MEDIUM TRUST", or "LOW TRUST") into "source_trust". Do not inventory generic domain URLs or change the trust string casing.
+
 Return a JSON object:
 {{
   "facts": [
     {{
       "category": "one of: {', '.join(FACT_CATEGORIES)}",
-      "fact": "specific verifiable fact with numbers/dates where present",
-      "source_url": "https://...",
-      "source_trust": "HIGH TRUST or MEDIUM TRUST or LOW TRUST",
-      "date_signal": "Q1 2025 or Undated",
+      "fact": "specific verifiable fact with numbers, percentages, or dates where present",
+      "source_url": "The exact absolute URL from the SOURCE tracking line",
+      "source_trust": "The exact string from the TRUST tracking line (e.g., HIGH TRUST)",
+      "date_signal": "Specific quarter/year (e.g., Q1 2025) or Undated if completely unmentioned",
       "board_relevance": 9,
       "strategic_impact": 9
     }}
@@ -295,13 +280,13 @@ def run_hard_gate_validation(facts: List[IntelligenceFact]) -> List[ValidatedFac
     verified = []
     for f in facts:
         if f.board_relevance < 8 or f.strategic_impact < 8: continue
-        if "LOW TRUST" in f.source_trust: continue
+        if "LOW TRUST" in f.source_trust.upper(): continue
         confidence = calculate_confidence(f.source_trust, f.board_relevance, f.strategic_impact)
         if confidence < 70: continue
-        if f.date_signal == "Undated" and "HIGH TRUST" not in f.source_trust: continue
+        if f.date_signal == "Undated" and "HIGH TRUST" not in f.source_trust.upper(): continue
         verified.append(ValidatedFact(
             category=f.category, fact=f.fact, source_url=f.source_url, 
-            source_trust=f.source_trust, date_signal=f.date_signal, 
+            source_trust=f.source_trust.upper(), date_signal=f.date_signal, 
             board_relevance=f.board_relevance, strategic_impact=f.strategic_impact, confidence=confidence,
         ))
     return verified
@@ -342,35 +327,62 @@ def run_expert_reasoner(
     fact_text = "\n".join([f"- {f.fact} (Source Trust: {f.source_trust})" for f in verified_facts]) if verified_facts else "INSUFFICIENT EVIDENCE."
     signal_text = "\n".join([f"- {s.signal} ({s.urgency})" for s in signals]) or "No validated signals."
 
-    prompt = f"""You are an expert decision-intelligence architect and reasoning-system designer.
-Your objective is to generate the most reliable decision possible from the available evidence.
+    prompt = f"""# SYSTEM INSTRUCTIONS: EVIDENCE-BASED REASONING ENGINE
 
-==================================================
-PRIMARY OBJECTIVE
-Maximize: Accuracy, Decision quality, Evidence quality, Reasoning quality, Explainability.
-Minimize: Assumptions, Hallucinations, Unsupported conclusions, Generic recommendations.
-Accuracy is more important than confidence. Evidence is more important than narrative.
+## ROLE & OBJECTIVE
+You are a strict Evidence-Based Reasoning Engine. Your primary responsibility is NOT to generate conclusions, but to rigorously construct and verify reasoning chains derived EXCLUSIVELY from provided data. 
+You must maximize accuracy, traceability, and reliability. Do not attempt to sound persuasive, strategic, or artificially confident.
 
-==================================================
-DATA SUFFICIENCY GATE
+## CORE PRINCIPLE: STRICT TRACEABILITY
+A conclusion is valid ONLY if every reasoning step is explicitly traced back to the original evidence. Plausible reasoning, general business wisdom, and industry assumptions are strictly prohibited. 
+
+Every output MUST follow this exact traceability chain:
+[Evidence] -> [Observation] -> [Root Cause] -> [Theme] -> [Option] -> [Decision]
+
+If any step in this chain is broken or missing, you must REJECT the conclusion.
+
+---
+
+## EXECUTION PROTOCOL & VALIDATION GATES
+
+### GATE 0: DATA SUFFICIENCY
 If evidence is insufficient to make reliable decisions, you MUST set "status" to "INSUFFICIENT_EVIDENCE".
-If status is INSUFFICIENT_EVIDENCE, leave themes, options, and decisions empty arrays.
+If status is INSUFFICIENT_EVIDENCE, populate the reason, but leave arrays empty or null for decisions.
+
+### GATE 1: OBSERVATION VALIDATION
+* **Rule:** Observations must describe EXACTLY what the evidence shows. 
+* **Constraint:** You may NOT introduce new information or explanations. 
+* *Example:* If evidence says "Revenue increased," the observation is "Revenue increased." "Customer demand increased" is an invalid observation (it is an explanation).
+
+### GATE 2: ROOT CAUSE CLASSIFICATION
+Every identified root cause MUST be strictly classified into one of four categories:
+* **CONFIRMED:** Explicitly and directly supported by provided evidence.
+* **LIKELY:** Strongly suggested by multiple converging data points.
+* **HYPOTHESIS:** Plausible based on data, but unproven.
+* **UNKNOWN:** Insufficient evidence to determine a cause.
+* *Constraint:* Never classify a cause as CONFIRMED unless the text explicitly proves it.
+
+### GATE 3: THEME & SIGNAL VALIDATION
+* **STRATEGIC THEME:** Requires a minimum of TWO (2) independent observations OR THREE (3) supporting facts.
+* **EMERGING SIGNAL:** If the threshold for a Theme is not met, it must be labeled as an Emerging Signal. Do not build strategic decisions solely on Emerging Signals.
+
+### GATE 4: COMPETITIVE VALIDATION
+* **Rule:** Do NOT provide general descriptions of competitors.
+* **Constraint:** Only identify explicitly evidence-backed advantages and evidence-backed vulnerabilities. If none exist in the data, output exactly: "Insufficient evidence."
+
+### GATE 5: OPTION GENERATION & DECISION TRACEABILITY
+Every Option and Final Decision must pass the following rigorous tests before output:
+1.  **The Traceability Test:** Does this option explicitly link to a Supporting Theme, Root Cause, Observation, and piece of Evidence? (If NO: Reject).
+2.  **The Generic Recommendation Detector:** Could this recommendation apply to a completely different company/situation without modification? (If YES: Reject).
+3.  **The Contradiction Test:** Is there any evidence in the dataset that contradicts this decision? (If YES: Note it explicitly and downgrade confidence).
+
+---
+
+## CONFIDENCE & KNOWLEDGE RULES
+1.  **ZERO External Knowledge:** All reasoning must originate from the provided information. Do not fill gaps with your own training data.
+2.  **Confidence Scoring:** Confidence must be calculated based strictly on: Evidence Quality, Evidence Quantity, Evidence Consistency, and Traceability Completeness. It must NEVER be based on writing style or linguistic certainty.
 
 ==================================================
-REQUIRED REASONING CHAIN
-Every analysis must follow: Verified Evidence → Observation → Root Cause → Strategic Theme → Implication → Options → Decision → Risk Assessment.
-
-- OBSERVATIONS: Describe WHAT the evidence shows. Do NOT explain why.
-- ROOT CAUSES: Explain WHY. Must classify as: CONFIRMED, LIKELY, HYPOTHESIS, or UNKNOWN.
-- STRATEGIC THEMES: Must emerge from MULTIPLE observations. Do not use isolated facts.
-- COMPETITIVE IMPLICATIONS: Focus on capability advantage/vulnerability and durability.
-- OPTIONS GENERATION: Evaluate Benefits, Risks, Complexity, Resources, and Evidence Support for at least 3 options.
-- RECOMMENDATION VALIDATION (BOARD CHALLENGE): Why this option over alternatives? What evidence supports it? What evidence contradicts it?
-
-==================================================
-ANTI-HALLUCINATION RULES
-Never invent facts, causes, metrics, percentages, market positions, outcomes, timelines, or confidence values.
-
 Evidence Sufficiency Input: {'SUFFICIENT' if evidence_sufficient else 'INSUFFICIENT_EVIDENCE'} ({sufficiency_message})
 Verified Evidence:
 {fact_text}
@@ -378,23 +390,18 @@ Verified Evidence:
 Strategic Signals:
 {signal_text}
 
-OUTPUT STRICT JSON MATCHING THE PROVIDED PYDANTIC SCHEMA:
+OUTPUT STRICT JSON MATCHING THE PROVIDED PYDANTIC SCHEMA.
 """
-    # Note: We rely on the `invoke_json` function and LLM understanding the schema from prompt context implicitly, 
-    # but providing the exact structure guarantees compliance.
-    
     schema_hint = """
 {
   "status": "SUFFICIENT or INSUFFICIENT_EVIDENCE",
   "reason": "...",
-  "evidence_summary": ["..."],
-  "observations": ["Observation 1 (what, not why)", "..."],
-  "root_causes": [{"cause": "...", "classification": "CONFIRMED/LIKELY/HYPOTHESIS/UNKNOWN", "supporting_evidence": "...", "confidence": "..."}],
-  "strategic_themes": [{"theme": "...", "supporting_observations": ["..."], "confidence": "..."}],
-  "competitive_implications": [{"competitor_name": "...", "capability_advantage": "...", "capability_vulnerability": "...", "advantage_durability": "...", "supporting_evidence": "..."}],
-  "options_considered": [{"option_name": "...", "benefits": "...", "risks": "...", "complexity": "...", "resource_requirements": "...", "evidence_support": "..."}],
-  "recommended_decisions": [{"recommended_decision": "...", "why_selected": "...", "why_alternatives_rejected": "...", "supporting_evidence": "...", "contradicting_evidence": "...", "assumptions": "...", "specific_risks": "..."}],
-  "uncertainties": ["..."],
+  "evidence_and_observation_log": [{"evidence": "...", "observation": "...", "root_cause_and_class": "..."}],
+  "strategic_themes_and_signals": [{"name": "...", "type": "STRATEGIC THEME or EMERGING SIGNAL", "traceability": ["..."]}],
+  "competitive_landscape": [{"competitor": "...", "advantage": "...", "advantage_evidence": "...", "vulnerability": "...", "vulnerability_evidence": "..."}],
+  "evaluated_options": [{"description": "...", "traceability_chain": "...", "generic_test_passed": "Yes/No"}],
+  "recommended_decision": "...",
+  "contradicting_evidence": "...",
   "confidence_assessment": "..."
 }"""
 
@@ -410,11 +417,11 @@ OUTPUT STRICT JSON MATCHING THE PROVIDED PYDANTIC SCHEMA:
 # ==========================================
 company = st.text_input("Target Company / Entity:", placeholder="e.g. Zomato, Reliance, Tesla...")
 
-if st.button("Run Expert Reasoning Analysis", type="primary"):
+if st.button("Run Evidence-Based Reasoning", type="primary"):
     if not company:
         st.error("Please enter an entity name.")
     else:
-        with st.status(f"Executing Decision Intelligence Pipeline for {company}...", expanded=True) as status:
+        with st.status(f"Executing Evidence Pipeline for {company}...", expanded=True) as status:
 
             st.write("📡 Search...")
             raw_context = run_enhanced_search(company)
@@ -431,7 +438,8 @@ if st.button("Run Expert Reasoning Analysis", type="primary"):
             time.sleep(1)
 
             st.write("📊 Fact Extraction System...")
-            raw_facts = run_researcher(company, entity, raw_context[:3000])
+            # Expanded slice to 6000 to keep high-impact metrics from being dropped mid-sentence
+            raw_facts = run_researcher(company, entity, raw_context[:6000])
 
             st.write("🔒 Hard-Gate Evidence Validation...")
             verified_facts = run_hard_gate_validation(raw_facts)
@@ -445,7 +453,7 @@ if st.button("Run Expert Reasoning Analysis", type="primary"):
             signals = run_signal_detector(company, verified_facts)
             time.sleep(1)
 
-            st.write("⚖️ Expert Reasoning System — Executing analytical chain...")
+            st.write("⚖️ Reasoning Engine — Enforcing Traceability Chain...")
             final_brief = run_expert_reasoner(
                 company, entity, verified_facts, signals,
                 evidence_sufficient, sufficiency_message
@@ -454,113 +462,99 @@ if st.button("Run Expert Reasoning Analysis", type="primary"):
             status.update(label="Analysis Complete", state="complete")
 
         if not final_brief:
-            st.error("Reasoning Engine failed. Try again.")
+            st.error("Reasoning Engine failed to produce valid JSON. Try again.")
             st.stop()
 
         # ==========================================
-        # DISPLAY: EXPERT REASONING LAYER
+        # DISPLAY: EVIDENCE-BASED REASONING LAYER
         # ==========================================
         st.divider()
-        st.header(f"Decision Intelligence Brief — {entity.canonical_name.upper()}")
+        st.header(f"Decision Validation Brief — {entity.canonical_name.upper()}")
         st.caption(f"**Entity Context:** {entity.industry} | {entity.sector} | {entity.primary_market}")
 
         if final_brief.status == "INSUFFICIENT_EVIDENCE":
             st.error(f"🛑 **DATA SUFFICIENCY GATE FAILED**")
-            st.warning(f"**Reason:** {final_brief.reason}")
+            st.warning(f"**Reason:** {final_brief.reason or 'Insufficient evidence provided.'}")
             st.info("Reliable conclusions cannot be generated from the available evidence. Strategy generation aborted.")
             st.stop()
         else:
-            st.success(f"✅ **DATA SUFFICIENCY GATE PASSED**\n{final_brief.reason}")
+            st.success(f"✅ **DATA SUFFICIENCY GATE PASSED**\n{final_brief.reason or 'Evidence meets threshold.'}")
 
-        # 1. EVIDENCE SUMMARY
-        st.markdown("### 1. Verified Evidence Summary")
+        # 1. EVIDENCE & OBSERVATION LOG
+        st.markdown("### 1. Evidence & Observation Log")
+        for log in final_brief.evidence_and_observation_log:
+            with st.container(border=True):
+                st.markdown(f"**Evidence:** `{log.evidence or 'N/A'}`")
+                st.info(f"**Observation:** {log.observation or 'N/A'}")
+                st.warning(f"**Root Cause & Class:** {log.root_cause_and_class or 'N/A'}")
+
+        # 2. STRATEGIC THEMES & SIGNALS
+        st.markdown("### 2. Strategic Themes & Signals")
+        c1, c2 = st.columns(2)
+        for i, ts in enumerate(final_brief.strategic_themes_and_signals):
+            col = c1 if i % 2 == 0 else c2
+            with col.container(border=True):
+                st.subheader(ts.name or "Unnamed Theme")
+                type_val = ts.type or "UNKNOWN"
+                type_color = "green" if "THEME" in type_val else "orange"
+                st.markdown(f"**Type:** :{type_color}[{type_val}]")
+                st.markdown("**Traceability:**")
+                for trace in ts.traceability:
+                    st.markdown(f"- {trace}")
+
+        # 3. COMPETITIVE LANDSCAPE
+        st.markdown("### 3. Competitive Landscape (Strict)")
+        for comp in final_brief.competitive_landscape:
+            with st.container(border=True):
+                st.markdown(f"**Competitor:** {comp.competitor or 'N/A'}")
+                c_adv, c_vuln = st.columns(2)
+                with c_adv:
+                    st.success(f"**Advantage:** {comp.advantage or 'None explicitly supported'}")
+                    st.caption(f"**Evidence:** {comp.advantage_evidence or 'N/A'}")
+                with c_vuln:
+                    st.error(f"**Vulnerability:** {comp.vulnerability or 'None explicitly supported'}")
+                    st.caption(f"**Evidence:** {comp.vulnerability_evidence or 'N/A'}")
+
+        # 4. EVALUATED OPTIONS
+        st.markdown("### 4. Evaluated Options")
+        for opt in final_brief.evaluated_options:
+            with st.container(border=True):
+                st.markdown(f"**Option:** {opt.description or 'N/A'}")
+                
+                chain = opt.traceability_chain
+                if isinstance(chain, list):
+                    chain = "\n-> ".join(chain)
+                st.info(f"**Traceability Chain:**\n{chain or 'N/A'}")
+                
+                passed_test = opt.generic_test_passed or ""
+                if "Yes" in passed_test:
+                    st.success("✅ **Passed Generic Test:** Uniquely applies to this situation.")
+                elif "No" in passed_test:
+                    st.error("❌ **Failed Generic Test:** Recommendation is too generic.")
+                else:
+                    st.warning("⚠️ **Generic Test:** Status Unknown")
+
+        # 5. FINAL DECISION & INTEGRITY CHECK
+        st.markdown("### 5. Final Decision & Integrity Check")
         with st.container(border=True):
-            for ev in final_brief.evidence_summary:
-                st.markdown(f"- {ev}")
-
-        # 2. OBSERVATIONS (WHAT)
-        st.markdown("### 2. Verified Observations")
-        with st.container(border=True):
-            for obs in final_brief.observations:
-                st.markdown(f"- {obs}")
-
-        # 3. ROOT CAUSE VALIDATION (WHY)
-        st.markdown("### 3. Root Cause Validation")
-        for rc in final_brief.root_causes:
-            with st.container(border=True):
-                c1, c2 = st.columns([3, 1])
-                c1.markdown(f"**Cause:** {rc.cause}")
-                c1.markdown(f"**Evidence:** {rc.supporting_evidence}")
-                c2.markdown(f"**Class:** `{rc.classification}`")
-                c2.markdown(f"**Confidence:** {rc.confidence}")
-
-        # 4. STRATEGIC THEMES
-        st.markdown("### 4. Strategic Themes")
-        for theme in final_brief.strategic_themes:
-            with st.container(border=True):
-                st.subheader(theme.theme)
-                st.markdown("**Supporting Observations:**")
-                for obs in theme.supporting_observations:
-                    st.markdown(f"- {obs}")
-                st.caption(f"Theme Confidence: {theme.confidence}")
-
-        # 5. COMPETITIVE IMPLICATIONS
-        st.markdown("### 5. Competitive Implications")
-        for comp in final_brief.competitive_implications:
-            with st.container(border=True):
-                st.markdown(f"**Competitor:** {comp.competitor_name}")
-                st.markdown(f"- **Advantage:** {comp.capability_advantage} *(Durability: {comp.advantage_durability})*")
-                st.markdown(f"- **Vulnerability:** {comp.capability_vulnerability}")
-                st.markdown(f"- **Evidence:** {comp.supporting_evidence}")
-
-        # 6. OPTIONS ANALYSIS
-        st.markdown("### 6. Options Evaluated")
-        if final_brief.options_considered:
-            tabs = st.tabs([opt.option_name for opt in final_brief.options_considered])
-            for idx, tab in enumerate(tabs):
-                with tab:
-                    opt = final_brief.options_considered[idx]
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.success(f"**Benefits:** {opt.benefits}")
-                        st.info(f"**Evidence Support:** {opt.evidence_support}")
-                        st.markdown(f"**Resource Req:** {opt.resource_requirements}")
-                    with c2:
-                        st.error(f"**Risks:** {opt.risks}")
-                        st.warning(f"**Complexity:** {opt.complexity}")
-        else:
-            st.info("No viable options generated from evidence.")
-
-        # 7. RECOMMENDED DECISIONS (BOARD CHALLENGE TEST)
-        st.markdown("### 7. Strategic Decisions")
-        for i, dec in enumerate(final_brief.recommended_decisions, 1):
-            with st.container(border=True):
-                st.subheader(f"Decision #{i}: {dec.recommended_decision}")
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("**Why Selected:**")
-                    st.success(dec.why_selected)
-                    st.markdown("**Why Alternatives Rejected:**")
-                    st.warning(dec.why_alternatives_rejected)
-                    st.markdown("**Assumptions Made:**")
-                    st.markdown(dec.assumptions)
-                with c2:
-                    st.markdown("**Supporting Evidence:**")
-                    st.info(dec.supporting_evidence)
-                    st.markdown("**Contradicting Evidence:**")
-                    st.error(dec.contradicting_evidence)
-                    st.markdown("**Specific Risks:**")
-                    st.error(dec.specific_risks)
-
-        # 8. UNCERTAINTIES & CONFIDENCE
-        st.markdown("### 8. Risk & Uncertainty Assessment")
-        with st.container(border=True):
-            st.error("**Known Uncertainties & Missing Evidence:**")
-            for unc in final_brief.uncertainties:
-                st.markdown(f"- {unc}")
+            st.subheader("Recommended Decision")
+            
+            if final_brief.recommended_decision:
+                st.success(final_brief.recommended_decision)
+            else:
+                st.write("No recommendation generated.")
+            
             st.divider()
-            st.markdown("**System Confidence Assessment:**")
-            st.markdown(final_brief.confidence_assessment)
+            st.markdown("**Contradicting Evidence:**")
+            contradicting = final_brief.contradicting_evidence or "None explicitly noted."
+            if "none" in contradicting.lower():
+                st.info(contradicting)
+            else:
+                st.warning(contradicting)
+            
+            st.markdown("**Confidence Assessment:**")
+            confidence = final_brief.confidence_assessment or "N/A"
+            st.markdown(f"`{confidence}`")
 
         # Export
         st.divider()
@@ -570,8 +564,8 @@ if st.button("Run Expert Reasoning Analysis", type="primary"):
             "reasoning_brief": final_brief.model_dump(),
         }
         st.download_button(
-            "Download Reasoning Package (JSON)",
+            "Download Evidence-Based Reasoning Package (JSON)",
             data=json.dumps(export, indent=2),
-            file_name=f"{company.replace(' ','_')}_decision_intelligence.json",
+            file_name=f"{company.replace(' ','_')}_evidence_reasoning.json",
             mime="application/json"
         )
