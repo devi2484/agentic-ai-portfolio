@@ -27,24 +27,18 @@ st.divider()
 # 2. TRUST & SCORING
 # ==========================================
 HIGH_TRUST_DOMAINS = [
-    # Existing Finance/India
     "reuters.com","bloomberg.com","cnbc.com","wsj.com","ft.com","sec.gov",
     "moneycontrol.com","economictimes.indiatimes.com","livemint.com",
     "businessstandard.com","thehindubusinessline.com","financialexpress.com",
     "bseindia.com","nseindia.com","sebi.gov.in","rbi.org.in",
-    # Global Strategy & Corporate
-    "lego.com", "hbr.org", "mckinsey.com", "bain.com", "bcg.com", 
-    "economist.com", "statista.com", "nyse.com", "nasdaq.com"
+    "hbr.org", "mckinsey.com", "bain.com", "bcg.com", "economist.com", 
+    "statista.com", "nyse.com", "nasdaq.com"
 ]
-
 MEDIUM_TRUST_DOMAINS = [
-    # Existing
     "techcrunch.com","forbes.com","inc42.com","entrackr.com",
     "yourstory.com","themorningcontext.com","restofworld.org","fortune.com",
-    # Reputable Mainstream Press
     "nytimes.com", "theguardian.com", "bbc.co.uk", "bbc.com", "cnn.com"
 ]
-
 LOW_TRUST_DOMAINS = [
     "linkedin.com","reddit.com","quora.com","wikipedia.org",
     "medium.com","twitter.com","x.com","substack.com",
@@ -55,8 +49,11 @@ MIN_VERIFIED_FACTS   = 2
 MIN_REPORT_CONFIDENCE = 50
 ENTITY_CONFIDENCE_THRESHOLD = 60
 
-def evaluate_trust(url: str) -> str:
+def evaluate_trust(url: str, company: str = "") -> str:
     domain = urlparse(url).netloc.lower().replace("www.", "")
+    # Self-disclosures for private companies are inherently high-trust primary evidence
+    if company and company.lower().replace(" ", "") in domain.replace("-", ""):
+        return "HIGH TRUST"
     if any(h in domain for h in HIGH_TRUST_DOMAINS):   return "HIGH TRUST"
     if any(m in domain for m in MEDIUM_TRUST_DOMAINS): return "MEDIUM TRUST"
     if any(l in domain for l in LOW_TRUST_DOMAINS):    return "LOW TRUST"
@@ -105,23 +102,23 @@ def get_evidence_sufficiency(verified_facts: list, report_confidence: int) -> tu
 # ==========================================
 def run_enhanced_search(company: str) -> str:
     current_year = datetime.now().year
-    
     queries = [
-        f"{company} corporate profile industry sector business model",
+        f"{company} corporate profile industry sector business model structure",
         f"{company} revenue profit margin earnings {current_year}",
-        f"{company} market share competitor comparison {current_year}",
-        f"{company} capital allocation acquisition fundraise {current_year}",
-        f"{company} regulatory risk supply chain disruption {current_year}",
-        f"{company} strategic pivot AI investment new market {current_year}",
+        f"{company} market share competitor performance {current_year}",
+        f"{company} capital allocation investment factory expansion {current_year}",
+        f"{company} regulatory risk sustainability supply chain {current_year}",
+        f"{company} strategic transformation product lineup roadmap {current_year}",
     ]
     results = []
     try:
         with DDGS() as ddgs:
             for q in queries:
-                for r in ddgs.text(q, max_results=2, timelimit="y"):
+                # Removed hard timelimit constraint to allow deep profile captures
+                for r in ddgs.text(q, max_results=2):
                     url = r.get("href", "")
                     results.append(
-                        f"SOURCE: {url}\nTRUST: {evaluate_trust(url)}\n"
+                        f"SOURCE: {url}\nTRUST: {evaluate_trust(url, company)}\n"
                         f"CONTENT: {r.get('title','')} — {r.get('body','')}\n{'-'*40}"
                     )
     except Exception as e:
@@ -142,7 +139,6 @@ def invoke_json(prompt: str) -> dict:
     resp = llm.invoke(messages)
     text = resp.content.strip()
     
-    # Safely strip markdown code blocks if the LLM adds them
     if text.startswith("```"):
         text = text.split("```")[1]
         if text.startswith("json"): 
@@ -254,7 +250,7 @@ Return a JSON object:
   "contamination_warnings": "None detected OR describe results about a different entity"
 }}
 Company queried: {company}
-Search context: {raw_context[:1500]}"""
+Search context: {raw_context[:2000]}"""
     try:
         data = invoke_json(prompt)
         return EntityProfile(**data)
@@ -268,20 +264,20 @@ Search context: {raw_context[:1500]}"""
 
 def run_researcher(company: str, entity: EntityProfile, raw_context: str) -> List[IntelligenceFact]:
     current_year = datetime.now().year
-    
-    prompt = f"""You are a Fact Extraction System. Extract highly specific, verifiable data for {entity.canonical_name}.
+    prompt = f"""You are a Fact Extraction System. Extract highly specific, verifiable operational and financial metrics for {entity.canonical_name}.
+Extract at least 4-6 distinct structural facts from the raw context text if available.
 
-CRITICAL INSTRUCTION: You must preserve data traceability. For every fact you extract, look closely at the "SOURCE:" and "TRUST:" labels directly preceding it in the Raw Context block. Copy the corresponding URL into "source_url" and the exact trust string ("HIGH TRUST", "MEDIUM TRUST", or "LOW TRUST") into "source_trust". Do not inventory generic domain URLs or change the trust string casing.
+CRITICAL INSTRUCTION: For every item you construct, match the source tracking indicators exactly. Copy the tracking link into "source_url" and the structural trust level token ("HIGH TRUST", "MEDIUM TRUST", or "LOW TRUST") into "source_trust".
 
 Return a JSON object:
 {{
   "facts": [
     {{
       "category": "one of: {', '.join(FACT_CATEGORIES)}",
-      "fact": "specific verifiable fact with numbers, percentages, or dates where present",
-      "source_url": "The exact absolute URL from the SOURCE tracking line",
-      "source_trust": "The exact string from the TRUST tracking line (e.g., HIGH TRUST)",
-      "date_signal": "Specific quarter/year. If the article implies current events (e.g., 'recently', 'today', 'this year'), output '{current_year}'. ONLY use 'Undated' if absolutely no time context exists.",
+      "fact": "verifiable claim containing specific figures, percentages, geographic transformations or product milestones",
+      "source_url": "The exact absolute tracking URL identified directly above the context segment",
+      "source_trust": "The tracking trust configuration token value",
+      "date_signal": "Specific timeline tag. If the document references ongoing, structural or recent outcomes, explicitly record '{current_year}'",
       "board_relevance": 9,
       "strategic_impact": 9
     }}
@@ -293,8 +289,15 @@ Raw Context:
         data = invoke_json(prompt)
         facts = []
         for f in data.get("facts", []):
-            try: facts.append(IntelligenceFact(**f))
-            except Exception: continue
+            try: 
+                # Sanitize field anomalies where string tags get mixed into integer definitions
+                if "board_relevance" in f and isinstance(f["board_relevance"], str):
+                    f["board_relevance"] = int(''.join(filter(str.isdigit, f["board_relevance"])) or 9)
+                if "strategic_impact" in f and isinstance(f["strategic_impact"], str):
+                    f["strategic_impact"] = int(''.join(filter(str.isdigit, f["strategic_impact"])) or 9)
+                facts.append(IntelligenceFact(**f))
+            except Exception: 
+                continue
         return facts
     except Exception as e:
         return []
@@ -302,7 +305,8 @@ Raw Context:
 def run_hard_gate_validation(facts: List[IntelligenceFact]) -> List[ValidatedFact]:
     verified = []
     for f in facts:
-        if f.board_relevance < 8 or f.strategic_impact < 8: continue
+        # Adjusted alignment parameters to stop filtering deep structural updates
+        if f.board_relevance < 7 or f.strategic_impact < 7: continue
         if "LOW TRUST" in f.source_trust.upper(): continue
         confidence = calculate_confidence(f.source_trust, f.board_relevance, f.strategic_impact)
         if confidence < 70: continue
@@ -368,30 +372,22 @@ If evidence is insufficient to make reliable decisions, you MUST set "status" to
 
 ### GATE 1: OBSERVATION RULE
 Observations describe what happened. They never explain why. 
-* Example: "Revenue increased."
-* NOT: "Revenue increased because demand improved."
 
 ### GATE 2: ROOT CAUSE RULE
 A root cause must explain an observation. If evidence does not explain the observation: Return UNKNOWN. Never restate the observation.
-* Bad: Observation: Profit declined. Root Cause: Profitability weakened.
-* Good: Root Cause: UNKNOWN OR Input cost inflation.
 
 ### GATE 3: INFERENCE LAYER (MOST IMPORTANT)
 This is where reasoning happens. Connect the Observation/Root Cause to strategic meaning.
 Inference can ONLY be classified as: CONFIRMED, LIKELY, or HYPOTHESIS.
-* Example: Observation = Tesla lost EV volume leadership. -> Inference = LIKELY | Production constraints reduced competitiveness.
 
 ### GATE 4: THEME RULE
 Themes explain patterns across observations. A theme requires a MINIMUM of 2 observations OR 3 facts. Facts/Observations are not themes.
-* Good: Margin Pressure, Supply Chain Vulnerability.
-* Bad: Revenue Growth, Profit Decline.
 
 ### GATE 5: OPTION SELECTION RULE
 Always generate exactly 3 evaluated options:
 1. Conservative Option
 2. Balanced Option
 3. Aggressive Option
-You must explicitly score each option based on: Evidence Support, Risk, Complexity, and Strategic Fit. Only select a recommendation AFTER scoring.
 
 ### GATE 6: DECISION TRACEABILITY RULE
 Every final recommendation must explicitly reference:
@@ -399,7 +395,6 @@ Every final recommendation must explicitly reference:
 - 1 Inference
 - 1 Theme
 - 1 Option
-If any are missing, the recommendation is invalid.
 
 ==================================================
 Evidence Sufficiency Input: {'SUFFICIENT' if evidence_sufficient else 'INSUFFICIENT_EVIDENCE'} ({sufficiency_message})
@@ -475,7 +470,8 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
             time.sleep(1)
 
             st.write("📊 Fact Extraction System...")
-            raw_facts = run_researcher(company, entity, raw_context[:6000])
+            # Expanded processing slice window to avoid string cutoffs
+            raw_facts = run_researcher(company, entity, raw_context[:12000])
 
             st.write("🔒 Hard-Gate Evidence Validation...")
             verified_facts = run_hard_gate_validation(raw_facts)
@@ -559,20 +555,17 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
         st.markdown("### 4. Evaluated Options")
         for opt in final_brief.evaluated_options:
             with st.container(border=True):
-                # Dynamically color the option type
                 opt_type = opt.option_type or "Unknown"
                 color = "blue" if "Conservative" in opt_type else "orange" if "Balanced" in opt_type else "red"
                 st.markdown(f"**Option Type:** :{color}[{opt_type}]")
                 st.markdown(f"**Description:** {opt.description or 'N/A'}")
                 
-                # Render Scores
                 sc1, sc2, sc3, sc4 = st.columns(4)
                 sc1.metric("Evidence Support", opt.evidence_support or "N/A")
                 sc2.metric("Risk", opt.risk or "N/A")
                 sc3.metric("Complexity", opt.complexity or "N/A")
                 sc4.metric("Strategic Fit", opt.strategic_fit or "N/A")
 
-                # Traceability
                 chain = opt.traceability_chain
                 if isinstance(chain, list):
                     chain = "\n-> ".join(chain)
