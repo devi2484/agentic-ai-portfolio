@@ -199,13 +199,17 @@ class EvaluatedOption(BaseModel):
 class DecisionIntelligenceBrief(BaseModel):
     status: str = Field(description="Must be exactly 'SUFFICIENT' or 'INSUFFICIENT_EVIDENCE'")
     reason: str = Field(description="Explanation of the sufficiency status based on input gates.")
-    evidence_and_observation_log: List[EvidenceLog]
-    strategic_themes_and_signals: List[ThemeSignal]
-    competitive_landscape: List[CompetitiveLandscape]
-    evaluated_options: List[EvaluatedOption]
-    recommended_decision: str
-    contradicting_evidence: str
-    confidence_assessment: str
+    
+    # Defaults to empty lists to avoid crashes when data is insufficient
+    evidence_and_observation_log: List[EvidenceLog] = Field(default_factory=list)
+    strategic_themes_and_signals: List[ThemeSignal] = Field(default_factory=list)
+    competitive_landscape: List[CompetitiveLandscape] = Field(default_factory=list)
+    evaluated_options: List[EvaluatedOption] = Field(default_factory=list)
+    
+    # Made Optional to prevent validation crashes during INSUFFICIENT_EVIDENCE
+    recommended_decision: Optional[str] = Field(default=None, description="The final recommendation, if evidence permits.")
+    contradicting_evidence: Optional[str] = Field(default=None, description="Evidence challenging the decision, if applicable.")
+    confidence_assessment: Optional[str] = Field(default=None, description="System confidence, if a conclusion was reached.")
 
 # ==========================================
 # 7. PIPELINE AGENTS
@@ -340,7 +344,7 @@ If any step in this chain is broken or missing, you must REJECT the conclusion.
 
 ### GATE 0: DATA SUFFICIENCY
 If evidence is insufficient to make reliable decisions, you MUST set "status" to "INSUFFICIENT_EVIDENCE".
-If status is INSUFFICIENT_EVIDENCE, populate the reason, but leave arrays empty.
+If status is INSUFFICIENT_EVIDENCE, populate the reason, but leave arrays empty or null for decisions.
 
 ### GATE 1: OBSERVATION VALIDATION
 * **Rule:** Observations must describe EXACTLY what the evidence shows. 
@@ -468,7 +472,7 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
             st.error(f"🛑 **DATA SUFFICIENCY GATE FAILED**")
             st.warning(f"**Reason:** {final_brief.reason}")
             st.info("Reliable conclusions cannot be generated from the available evidence. Strategy generation aborted.")
-            st.stop()
+            st.stop() # UI explicitly stops rendering here, safely ignoring the Optional fields below
         else:
             st.success(f"✅ **DATA SUFFICIENCY GATE PASSED**\n{final_brief.reason}")
 
@@ -521,17 +525,24 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
         st.markdown("### 5. Final Decision & Integrity Check")
         with st.container(border=True):
             st.subheader("Recommended Decision")
-            st.success(final_brief.recommended_decision)
+            
+            # Using `.get()` or basic truthiness to safely handle optional fields
+            if final_brief.recommended_decision:
+                st.success(final_brief.recommended_decision)
+            else:
+                st.write("No recommendation generated.")
             
             st.divider()
             st.markdown("**Contradicting Evidence:**")
-            if "none" in final_brief.contradicting_evidence.lower():
-                st.info(final_brief.contradicting_evidence)
+            contradicting = final_brief.contradicting_evidence or "None explicitly noted."
+            if "none" in contradicting.lower():
+                st.info(contradicting)
             else:
-                st.warning(final_brief.contradicting_evidence)
+                st.warning(contradicting)
             
             st.markdown("**Confidence Assessment:**")
-            st.markdown(f"`{final_brief.confidence_assessment}`")
+            confidence = final_brief.confidence_assessment or "N/A"
+            st.markdown(f"`{confidence}`")
 
         # Export
         st.divider()
