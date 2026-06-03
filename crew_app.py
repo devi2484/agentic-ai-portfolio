@@ -2,6 +2,7 @@ import os
 import json
 import time
 import streamlit as st
+from datetime import datetime
 from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 from ddgs import DDGS
@@ -26,15 +27,24 @@ st.divider()
 # 2. TRUST & SCORING
 # ==========================================
 HIGH_TRUST_DOMAINS = [
+    # Existing Finance/India
     "reuters.com","bloomberg.com","cnbc.com","wsj.com","ft.com","sec.gov",
     "moneycontrol.com","economictimes.indiatimes.com","livemint.com",
     "businessstandard.com","thehindubusinessline.com","financialexpress.com",
     "bseindia.com","nseindia.com","sebi.gov.in","rbi.org.in",
+    # Global Strategy & Corporate
+    "lego.com", "hbr.org", "mckinsey.com", "bain.com", "bcg.com", 
+    "economist.com", "statista.com", "nyse.com", "nasdaq.com"
 ]
+
 MEDIUM_TRUST_DOMAINS = [
+    # Existing
     "techcrunch.com","forbes.com","inc42.com","entrackr.com",
     "yourstory.com","themorningcontext.com","restofworld.org","fortune.com",
+    # Reputable Mainstream Press
+    "nytimes.com", "theguardian.com", "bbc.co.uk", "bbc.com", "cnn.com"
 ]
+
 LOW_TRUST_DOMAINS = [
     "linkedin.com","reddit.com","quora.com","wikipedia.org",
     "medium.com","twitter.com","x.com","substack.com",
@@ -94,12 +104,15 @@ def get_evidence_sufficiency(verified_facts: list, report_confidence: int) -> tu
 # 4. SEARCH
 # ==========================================
 def run_enhanced_search(company: str) -> str:
+    current_year = datetime.now().year
+    
     queries = [
-        f"{company} revenue profit margin earnings 2025",
-        f"{company} market share competitor comparison 2025",
-        f"{company} capital allocation acquisition fundraise 2025",
-        f"{company} regulatory risk supply chain disruption 2025",
-        f"{company} strategic pivot AI investment new market 2025",
+        f"{company} corporate profile industry sector business model",
+        f"{company} revenue profit margin earnings {current_year}",
+        f"{company} market share competitor comparison {current_year}",
+        f"{company} capital allocation acquisition fundraise {current_year}",
+        f"{company} regulatory risk supply chain disruption {current_year}",
+        f"{company} strategic pivot AI investment new market {current_year}",
     ]
     results = []
     try:
@@ -115,9 +128,6 @@ def run_enhanced_search(company: str) -> str:
         st.error(f"Search error: {e}")
     return "\n".join(results)
 
-# ==========================================
-# 5. JSON INVOKE
-# ==========================================
 # ==========================================
 # 5. JSON INVOKE
 # ==========================================
@@ -257,6 +267,8 @@ Search context: {raw_context[:1500]}"""
         )
 
 def run_researcher(company: str, entity: EntityProfile, raw_context: str) -> List[IntelligenceFact]:
+    current_year = datetime.now().year
+    
     prompt = f"""You are a Fact Extraction System. Extract highly specific, verifiable data for {entity.canonical_name}.
 
 CRITICAL INSTRUCTION: You must preserve data traceability. For every fact you extract, look closely at the "SOURCE:" and "TRUST:" labels directly preceding it in the Raw Context block. Copy the corresponding URL into "source_url" and the exact trust string ("HIGH TRUST", "MEDIUM TRUST", or "LOW TRUST") into "source_trust". Do not inventory generic domain URLs or change the trust string casing.
@@ -269,7 +281,7 @@ Return a JSON object:
       "fact": "specific verifiable fact with numbers, percentages, or dates where present",
       "source_url": "The exact absolute URL from the SOURCE tracking line",
       "source_trust": "The exact string from the TRUST tracking line (e.g., HIGH TRUST)",
-      "date_signal": "Specific quarter/year (e.g., Q1 2025) or Undated if completely unmentioned",
+      "date_signal": "Specific quarter/year. If the article implies current events (e.g., 'recently', 'today', 'this year'), output '{current_year}'. ONLY use 'Undated' if absolutely no time context exists.",
       "board_relevance": 9,
       "strategic_impact": 9
     }}
