@@ -79,6 +79,42 @@ REASONING_WORDS_IN_OBSERVATIONS = [
     "consequently", "hence", "thus", "leading to", "resulting in"
 ]
 
+# ==========================================
+# REQ 1 — REJECT CATEGORIES: non-decision-grade content
+# ==========================================
+REJECT_CONTENT_PATTERNS = [
+    # Mission / vision / corporate description markers
+    r'\b(our mission|our vision|our purpose|we believe|we strive|we are committed)\b',
+    r'\b(company overview|about us|who we are|our story|founded in)\b',
+    r'\b(world.?class|industry.?leading|best.?in.?class|leading provider|trusted partner)\b',
+    r'\b(dedicated to|passionate about|committed to excellence|customer.?centric)\b',
+    # Pure marketing language
+    r'\b(innovative solutions?|cutting.?edge|state.?of.?the.?art|next.?generation)\b',
+    r'\b(seamless experience|transforming the way|reimagining|revolutionizing)\b',
+]
+
+PREFERRED_CONTENT_KEYWORDS = [
+    "revenue", "profit", "margin", "ebitda", "earnings", "net income",
+    "market share", "growth rate", "capex", "acquisition", "divestiture",
+    "launched", "partnership", "regulatory", "compliance", "penalty",
+    "crore", "billion", "million", "lakh", "percent", "%", "₹", "$", "€",
+    "quarter", "annual", "fiscal", "q1", "q2", "q3", "q4",
+]
+
+
+def is_non_decision_content(fact_text: str) -> tuple[bool, str]:
+    """Returns (True, reason) if fact is mission/marketing/non-decision content."""
+    import re as _re
+    text_lower = fact_text.lower()
+    for pattern in REJECT_CONTENT_PATTERNS:
+        if _re.search(pattern, text_lower):
+            return True, f"Non-decision content pattern detected: '{pattern}'"
+    # If fact has none of the preferred keywords and is short, likely generic
+    has_preferred = any(kw in text_lower for kw in PREFERRED_CONTENT_KEYWORDS)
+    if not has_preferred and len(fact_text.split()) < 12:
+        return True, "No decision-relevant keywords (revenue, margin, share, regulatory, etc.)"
+    return False, ""
+
 
 def count_generic_phrases(text: str) -> tuple[int, list]:
     text_lower = text.lower()
@@ -92,6 +128,87 @@ def contains_reasoning(observation: str) -> tuple[bool, str]:
     if found:
         return True, f"Contains reasoning language: {', '.join(found)}"
     return False, ""
+
+
+# ==========================================
+# REQ 3 — INFERENCE QUALITY: reject inferences that merely rephrase the observation
+# ==========================================
+def inference_merely_rephrases(observation: str, inference: str) -> tuple[bool, str]:
+    """
+    Returns (True, reason) if the inference is just a renamed version of the observation.
+    Checks:
+    1. Levenshtein-like word overlap > 70%
+    2. Inference is shorter or equal to observation (no new meaning added)
+    3. Inference adds no explanatory value (no significance words)
+    """
+    if not observation or not inference:
+        return False, ""
+
+    # Strip classification tag from inference for comparison
+    inf_clean = inference.split("|")[0].strip().lower()
+    obs_clean = observation.lower()
+
+    obs_words = set(obs_clean.split())
+    inf_words = set(inf_clean.split())
+
+    # Remove stopwords for overlap calculation
+    stopwords = {"the", "a", "an", "is", "are", "was", "were", "has", "have",
+                 "had", "in", "of", "to", "for", "and", "or", "but", "its",
+                 "their", "this", "that", "with", "by", "at", "on", "from"}
+    obs_content = obs_words - stopwords
+    inf_content = inf_words - stopwords
+
+    if not obs_content:
+        return False, ""
+
+    overlap = len(obs_content & inf_content) / len(obs_content)
+
+    # Significance words signal the inference adds meaning
+    significance_words = [
+        "signal", "suggest", "pattern", "pressure", "advantage", "risk",
+        "opportunity", "challenge", "momentum", "strength", "weakness",
+        "competitive", "strategic", "structural", "cyclical", "systemic",
+        "demand", "supply", "portfolio", "capacity", "execution",
+        "erosion", "expansion", "discipline", "positioning", "exposure"
+    ]
+    adds_significance = any(sw in inf_clean for sw in significance_words)
+
+    if overlap > 0.70 and not adds_significance:
+        return True, (
+            f"Inference overlaps {int(overlap*100)}% with observation and adds no explanatory significance. "
+            "Inference must explain strategic meaning, not rephrase the fact."
+        )
+    return False, ""
+
+
+# ==========================================
+# REQ 12 — LAYER DIFFERENTIATION: observation ≠ inference ≠ theme
+# ==========================================
+def check_layer_differentiation(observation: str, inference: str, theme_name: str = "") -> list[str]:
+    """Returns list of differentiation violations."""
+    issues = []
+    if not observation or not inference:
+        return issues
+
+    inf_clean = inference.split("|")[0].strip().lower()
+    obs_clean = observation.lower()
+
+    # Obs vs Inference
+    rephrased, msg = inference_merely_rephrases(observation, inference)
+    if rephrased:
+        issues.append(f"Layer violation — Inference is a rephrasing of Observation: {msg}")
+
+    # Inference vs Theme
+    if theme_name:
+        theme_lower = theme_name.lower()
+        inf_words = set(inf_clean.split()) - {"the", "a", "an", "is", "are", "in", "of", "and"}
+        theme_words = set(theme_lower.split()) - {"the", "a", "an", "is", "are", "in", "of", "and"}
+        if theme_words and inf_words and len(theme_words & inf_words) / max(len(theme_words), 1) > 0.65:
+            issues.append(
+                f"Layer violation — Theme '{theme_name}' appears to be a renamed Inference, not a broader pattern."
+            )
+
+    return issues
 
 
 def evaluate_trust(url: str, company: str = "") -> str:
@@ -187,6 +304,51 @@ def calculate_report_confidence(verified_facts: list, total_facts: int) -> int:
     return int((gate_rate * 0.4 + avg_conf / 100 * 0.6) * 100)
 
 
+# ==========================================
+# REQ 11 — CONFIDENCE CALIBRATION: deterministic label from evidence count & quality
+# ==========================================
+def calibrate_confidence_label(verified_facts: list) -> tuple[str, str]:
+    """
+    Returns (label, explanation) based on evidence quantity and quality.
+    Scale:
+      LOW       = 1-2 verified facts
+      MEDIUM    = 3-4 verified facts
+      MEDIUM-HIGH = 5-7 verified facts
+      HIGH      = 8+ verified facts with multiple independent sources
+    Never returns HIGH from weak evidence (< 2 high-trust sources).
+    """
+    n = len(verified_facts)
+    high_trust_count = sum(1 for f in verified_facts if "HIGH TRUST" in f.source_trust.upper())
+    avg_quality = sum(f.fact_quality_score for f in verified_facts) / n if n else 0
+
+    if n >= 8 and high_trust_count >= 2 and avg_quality >= 65:
+        label = "HIGH"
+        explanation = (
+            f"{n} verified facts, {high_trust_count} high-trust independent sources, "
+            f"avg quality {avg_quality:.0f}/100 — multiple corroborating sources present."
+        )
+    elif n >= 5:
+        label = "MEDIUM-HIGH"
+        explanation = (
+            f"{n} verified facts, {high_trust_count} high-trust source(s), "
+            f"avg quality {avg_quality:.0f}/100 — solid evidence base."
+        )
+    elif n >= 3:
+        label = "MEDIUM"
+        explanation = (
+            f"{n} verified facts, {high_trust_count} high-trust source(s), "
+            f"avg quality {avg_quality:.0f}/100 — moderate evidence base."
+        )
+    else:
+        label = "LOW"
+        explanation = (
+            f"Only {n} verified fact(s) passed quality gate — "
+            "conclusions are tentative and should not drive irreversible decisions."
+        )
+
+    return label, explanation
+
+
 def get_evidence_sufficiency(verified_facts: list, report_confidence: int) -> tuple[bool, str]:
     if len(verified_facts) < MIN_VERIFIED_FACTS:
         return False, f"Only {len(verified_facts)} fact(s) passed validation. Insufficient evidence."
@@ -214,50 +376,119 @@ def calculate_option_score(evidence_support: int, risk: int,
     return int((raw / 10) * 100)
 
 
-# NEW: Requirement 9 — traceability chain validator
-def validate_traceability_chain(brief) -> list[str]:
+# NEW: Requirement 9 — traceability chain validator (+ Req 3, 5, 6, 11, 12)
+def validate_traceability_chain(brief, verified_facts: list = None) -> list[str]:
     """
     Returns a list of traceability violations found in the brief.
     Empty list = chain is valid.
+    Covers: Req 2 (obs purity), Req 3 (inference quality), Req 4 (classification),
+            Req 5 (theme threshold), Req 6 (competitor evidence sentinel),
+            Req 9 (chain completeness), Req 10 (generic check), Req 12 (layer diff).
     """
     violations = []
 
-    # Check evidence → observation links exist
+    # Collect theme names for layer differentiation check
+    theme_names = [ts.name or "" for ts in brief.strategic_themes_and_signals]
+
+    # ── Evidence → Observation → Inference ─────────────────────────────
     for i, log in enumerate(brief.evidence_and_observation_log):
+        tag = f"Log {i+1}"
+
         if not log.evidence or len(log.evidence.strip()) < 10:
-            violations.append(f"Log {i+1}: Evidence is missing or too vague.")
+            violations.append(f"{tag}: Evidence is missing or too vague.")
         if not log.observation or len(log.observation.strip()) < 10:
-            violations.append(f"Log {i+1}: Observation is missing.")
+            violations.append(f"{tag}: Observation is missing.")
+
+        # Req 2 — observation purity
         has_reasoning, reasoning_msg = contains_reasoning(log.observation or "")
         if has_reasoning:
-            violations.append(f"Log {i+1}: Observation contains reasoning language — {reasoning_msg}")
+            violations.append(f"{tag}: Observation contains reasoning language — {reasoning_msg}")
+
         if log.inference:
-            classification = log.inference.split("|")[-1].strip().upper()
+            # Req 4 — inference must have classification tag
+            parts = log.inference.split("|")
+            classification = parts[-1].strip().upper() if len(parts) > 1 else ""
             if classification not in ["CONFIRMED", "LIKELY", "HYPOTHESIS"]:
-                violations.append(f"Log {i+1}: Inference missing classification (must end with | CONFIRMED/LIKELY/HYPOTHESIS).")
+                violations.append(
+                    f"{tag}: Inference missing classification — must end with "
+                    "'| CONFIRMED', '| LIKELY', or '| HYPOTHESIS'."
+                )
 
-    # Check themes have ≥ 2 traceability references
+            # Req 3 — inference must not merely rephrase observation
+            rephrased, rephrase_msg = inference_merely_rephrases(log.observation or "", log.inference)
+            if rephrased:
+                violations.append(f"{tag}: {rephrase_msg}")
+
+            # Req 12 — layer differentiation: inference ≠ observation ≠ any theme
+            for tname in theme_names:
+                layer_issues = check_layer_differentiation(log.observation or "", log.inference, tname)
+                for issue in layer_issues:
+                    violations.append(f"{tag}: {issue}")
+        else:
+            violations.append(f"{tag}: Inference is missing entirely.")
+
+    # ── Themes (Req 5 threshold enforcement) ────────────────────────────
     for i, theme in enumerate(brief.strategic_themes_and_signals):
-        if len(theme.traceability) < 2:
-            violations.append(f"Theme '{theme.name}': Fewer than 2 traceability references (has {len(theme.traceability)}).")
+        trace_count = len(theme.traceability)
+        theme_type = (theme.type or "").upper()
 
-    # Check competitor claims have evidence
+        # A STRATEGIC THEME requires ≥ 2 traceability references
+        if "THEME" in theme_type and trace_count < 2:
+            violations.append(
+                f"Theme '{theme.name}': Classified as STRATEGIC THEME but has only "
+                f"{trace_count} traceability reference(s). Minimum 2 required — "
+                "should be downgraded to EMERGING SIGNAL."
+            )
+        # An EMERGING SIGNAL with 0 traceability is still a violation
+        elif trace_count == 0:
+            violations.append(
+                f"Theme '{theme.name}': No traceability references at all — "
+                "minimum 1 required even for EMERGING SIGNAL."
+            )
+
+        # Req 12 — theme name should not be a direct copy of an observation/inference
+        # (checked above in the per-log loop; flagging here if theme is just a bare label)
+        if theme.name and len(theme.name.split()) <= 2:
+            bad_bare_labels = [
+                "revenue growth", "profitability", "market share", "growth",
+                "innovation", "expansion", "efficiency", "performance"
+            ]
+            if theme.name.lower().strip() in bad_bare_labels:
+                violations.append(
+                    f"Theme '{theme.name}': Name is a bare category label, not a strategic pattern. "
+                    "Rename to a descriptive theme (e.g. 'Brand-Led Growth', 'Margin Expansion Under Pressure')."
+                )
+
+    # ── Competitors (Req 6 — sentinel instead of null) ──────────────────
     for comp in brief.competitive_landscape:
+        comp_name = comp.competitor or "Unknown"
         if comp.advantage and not comp.advantage_evidence:
-            violations.append(f"Competitor '{comp.competitor}': Advantage claim has no evidence backing.")
+            violations.append(
+                f"Competitor '{comp_name}': Advantage claim '{comp.advantage[:60]}' "
+                "has no evidence backing. Use INSUFFICIENT_COMPETITIVE_EVIDENCE or cite specific evidence."
+            )
         if comp.vulnerability and not comp.vulnerability_evidence:
-            violations.append(f"Competitor '{comp.competitor}': Vulnerability claim has no evidence backing.")
+            violations.append(
+                f"Competitor '{comp_name}': Vulnerability claim '{comp.vulnerability[:60]}' "
+                "has no evidence backing. Use INSUFFICIENT_COMPETITIVE_EVIDENCE or cite specific evidence."
+            )
 
-    # Check recommended decision references required elements
+    # ── Decision traceability (Req 9) ───────────────────────────────────
     decision = brief.recommended_decision or ""
-    for required in ["Observation", "Inference", "Theme", "Option"]:
-        if required.lower() not in decision.lower():
-            violations.append(f"Decision: Does not explicitly reference a {required}.")
+    if decision:
+        for required in ["Observation", "Inference", "Theme", "Option"]:
+            if required.lower() not in decision.lower():
+                violations.append(f"Decision: Does not explicitly reference a {required} — chain is broken.")
 
-    # Check generic language in decision
-    generic_count, generic_found = count_generic_phrases(decision)
-    if generic_count >= GENERIC_WORD_THRESHOLD:
-        violations.append(f"Decision: Contains {generic_count} generic phrase(s): {', '.join(generic_found)}. Recommendation may be too generic.")
+        # Req 10 — generic language check
+        generic_count, generic_found = count_generic_phrases(decision)
+        if generic_count >= GENERIC_WORD_THRESHOLD:
+            violations.append(
+                f"Decision: Contains {generic_count} generic phrase(s): {', '.join(generic_found)}. "
+                "Recommendation must be specific to this entity and evidence."
+            )
+    else:
+        violations.append("Decision: recommended_decision is empty — no recommendation was generated.")
 
     return violations
 
@@ -548,6 +779,11 @@ def run_hard_gate_validation(facts: List[IntelligenceFact]) -> tuple[List[Valida
     for f in facts:
         reasons = []
 
+        # NEW Gate 0: reject mission/marketing/non-decision content (Req 1)
+        is_non_decision, non_decision_reason = is_non_decision_content(f.fact)
+        if is_non_decision:
+            reasons.append(f"Non-decision-grade content — {non_decision_reason}")
+
         # Gate 1: board relevance + strategic impact
         if f.board_relevance < 8 or f.strategic_impact < 8:
             reasons.append(f"Low scores — board_relevance={f.board_relevance}, strategic_impact={f.strategic_impact} (min 8 each)")
@@ -672,20 +908,30 @@ Violation = observation is rejected. Root cause handles the WHY.
 Root cause must explain WHY the observation occurred. If evidence does not support a cause, write UNKNOWN.
 Never copy the observation into the root cause field.
 
-## GATE 3 — INFERENCE CLASSIFICATION (MANDATORY)
-Every inference MUST end with: | CONFIRMED, | LIKELY, or | HYPOTHESIS
-- CONFIRMED: directly stated in evidence with high-trust source
-- LIKELY: strongly implied by evidence from medium-or-higher trust source
-- HYPOTHESIS: logical but not directly evidenced
+## GATE 3 — INFERENCE QUALITY (MANDATORY)
+Inferences MUST explain the strategic significance of the observation — NOT rephrase it.
+REJECTED inference: Observation says "Revenue increased 12%." — Inference says "Revenue growth." ← REJECTED
+REQUIRED inference: Observation says "Revenue increased 12%." — Inference says "Demand and portfolio performance appear strong. | LIKELY"
+Rules:
+- Every inference MUST end with: | CONFIRMED, | LIKELY, or | HYPOTHESIS
+  • CONFIRMED: directly stated in evidence with high-trust source
+  • LIKELY: strongly implied by evidence from medium-or-higher trust source
+  • HYPOTHESIS: logical but not directly evidenced
+- If the inference merely renames or shortens the observation: REGENERATE.
+- Inferences must contain at least one significance word: signal, pressure, advantage, risk, opportunity, challenge, momentum, competitive, structural, erosion, expansion, discipline, exposure, demand, capacity.
 
-## GATE 4 — THEME EVIDENCE REQUIREMENT
-A theme requires MINIMUM 2 observations OR 3 facts from verified evidence.
-Never state a theme as a theme unless it appears in multiple evidence items.
+## GATE 4 — THEME EVIDENCE REQUIREMENT & CLASSIFICATION
+A theme requires MINIMUM 2 observations OR 3 facts from verified evidence → classify as STRATEGIC THEME.
+If only 1 observation supports it → classify as EMERGING SIGNAL (not STRATEGIC THEME).
 Observation restatements cannot become themes.
+GOOD theme names: "Brand-Led Growth", "Margin Expansion Under Pressure", "Competitive Erosion", "Capital Discipline".
+BAD theme names (bare labels — REJECTED): "Revenue Growth", "Profitability", "Market Share", "Growth", "Expansion".
+A theme must describe a pattern or trajectory, not a category.
 
 ## GATE 5 — COMPETITOR EVIDENCE RULE
 Every competitor advantage and vulnerability claim MUST include a specific evidence citation.
-Do not state competitor claims without evidence. Write "Insufficient evidence" rather than speculate.
+If competitive evidence is unavailable, write exactly: INSUFFICIENT_COMPETITIVE_EVIDENCE
+Do NOT invent competitors. Do NOT use prior knowledge. Do NOT leave evidence fields null if a claim is made.
 
 ## GATE 6 — OPTION SCORING (NUMERIC, 1-10)
 Generate exactly 3 options: Conservative, Balanced, Aggressive.
@@ -707,6 +953,23 @@ The recommendation must be specific to THIS entity, THIS evidence, THIS moment.
 The recommended_decision field MUST use this exact format:
 "Based on Obs: [observation], Inf: [inference], Theme: [theme name], Opt: [option type]: [specific action]"
 
+## GATE 9 — LAYER DIFFERENTIATION (CRITICAL)
+Every layer must add new value. If three layers describe the same thing with different words: REGENERATE.
+- Observation = what happened (pure restatement of evidence)
+- Inference = what it means (strategic significance, forward implication)
+- Theme = what broader pattern it represents across multiple observations
+Example of VIOLATION: Obs: "Revenue up 12%." / Inf: "Revenue increased." / Theme: "Revenue Growth." ← ALL REJECTED
+Example of VALID: Obs: "Revenue up 12% YoY." / Inf: "Broad-based demand and pricing power appear intact. | LIKELY" / Theme: "Portfolio-Driven Revenue Resilience"
+
+## GATE 10 — CONFIDENCE CALIBRATION
+Set confidence_assessment using this deterministic scale (do not inflate):
+- LOW: 1-2 verified facts
+- MEDIUM: 3-4 verified facts
+- MEDIUM-HIGH: 5-7 verified facts
+- HIGH: 8+ verified facts with multiple independent high-trust sources
+Never write HIGH confidence unless 8+ facts from 2+ high-trust independent sources are present.
+Format: "Confidence: [LABEL] — [N] verified facts, [X] high-trust sources. [One sentence on reliability]."
+
 ---
 Evidence Sufficiency: {'SUFFICIENT' if evidence_sufficient else 'INSUFFICIENT_EVIDENCE'} ({sufficiency_message})
 
@@ -727,25 +990,25 @@ OUTPUT STRICT JSON:
       "evidence": "direct quote or paraphrase of the verified fact",
       "observation": "what happened — NO reasoning words",
       "root_cause": "why it happened — or UNKNOWN",
-      "inference": "strategic meaning | CONFIRMED/LIKELY/HYPOTHESIS",
+      "inference": "strategic meaning — must explain significance, not rephrase | CONFIRMED/LIKELY/HYPOTHESIS",
       "observation_purity_passed": true,
       "inference_classified": true
     }}
   ],
   "strategic_themes_and_signals": [
     {{
-      "name": "theme name",
-      "type": "STRATEGIC THEME or EMERGING SIGNAL",
+      "name": "Descriptive pattern name — NOT a bare label",
+      "type": "STRATEGIC THEME (if 2+ obs) or EMERGING SIGNAL (if 1 obs)",
       "traceability": ["Observation 1 reference", "Observation 2 reference"]
     }}
   ],
   "competitive_landscape": [
     {{
-      "competitor": "name",
+      "competitor": "name — only if found in evidence",
       "advantage": "specific advantage or null",
-      "advantage_evidence": "specific evidence citation — required if advantage stated",
+      "advantage_evidence": "specific evidence citation — REQUIRED if advantage stated — write INSUFFICIENT_COMPETITIVE_EVIDENCE if unavailable",
       "vulnerability": "specific vulnerability or null",
-      "vulnerability_evidence": "specific evidence citation — required if vulnerability stated"
+      "vulnerability_evidence": "specific evidence citation — REQUIRED if vulnerability stated — write INSUFFICIENT_COMPETITIVE_EVIDENCE if unavailable"
     }}
   ],
   "evaluated_options": [
@@ -788,9 +1051,9 @@ OUTPUT STRICT JSON:
   ],
   "recommended_decision": "Based on Obs: [...], Inf: [...], Theme: [...], Opt: [...]: [specific action]",
   "selected_option_type": "Conservative/Balanced/Aggressive",
-  "selection_rationale": "Why this option scored highest...",
+  "selection_rationale": "Why this option scored highest and why the other two were rejected.",
   "contradicting_evidence": "any evidence that contradicts the recommendation or None",
-  "confidence_assessment": "Overall confidence X% — based on Y verified facts, Z high-trust sources"
+  "confidence_assessment": "Confidence: LOW/MEDIUM/MEDIUM-HIGH/HIGH — N verified facts, X high-trust sources. [One sentence on reliability]."
 }}"""
 
     try:
@@ -903,7 +1166,7 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
                             st.error(f"• {r}")
 
         # ── NEW: Traceability Validation Report ──────────────
-        violations = validate_traceability_chain(final_brief)
+        violations = validate_traceability_chain(final_brief, verified_facts)
         if violations:
             with st.expander(f"⚠️ Traceability Violations ({len(violations)} found)", expanded=True):
                 for v in violations:
@@ -935,6 +1198,19 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
                     st.markdown(f"**Inference:** {inf}")
                     st.markdown(f"**Classification:** :{badge_color}[{classification}]")
 
+                    # Req 3 — inference quality check
+                    rephrased, rephrase_msg = inference_merely_rephrases(log.observation or "", inf)
+                    if rephrased:
+                        st.error(f"❌ **Inference Quality Failed:** {rephrase_msg}")
+                    else:
+                        st.success("✅ Inference adds explanatory value beyond observation.")
+
+                    # Req 12 — layer differentiation check
+                    for tname in [ts.name or "" for ts in final_brief.strategic_themes_and_signals]:
+                        layer_issues = check_layer_differentiation(log.observation or "", inf, tname)
+                        for issue in layer_issues:
+                            st.warning(f"⚠️ {issue}")
+
         # 2. STRATEGIC THEMES & SIGNALS
         st.markdown("### 2. Strategic Themes & Signals")
         c1, c2 = st.columns(2)
@@ -943,11 +1219,25 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
             with col.container(border=True):
                 st.subheader(ts.name or "Unnamed Theme")
                 type_val   = ts.type or "UNKNOWN"
-                type_color = "green" if "THEME" in type_val else "orange"
-                st.markdown(f"**Type:** :{type_color}[{type_val}]")
                 trace_count = len(ts.traceability)
+
+                # Req 5 — enforce STRATEGIC THEME vs EMERGING SIGNAL threshold
+                if "THEME" in type_val.upper() and trace_count < 2:
+                    st.error(
+                        f"⚠️ Threshold Violation: Classified as STRATEGIC THEME "
+                        f"but only {trace_count} traceability reference(s). "
+                        "Must be downgraded to EMERGING SIGNAL."
+                    )
+                    type_val = "EMERGING SIGNAL ⚠️ (reclassified — insufficient evidence)"
+                    type_color = "red"
+                elif "THEME" in type_val.upper():
+                    type_color = "green"
+                else:
+                    type_color = "orange"
+
+                st.markdown(f"**Type:** :{type_color}[{type_val}]")
                 if trace_count < 2:
-                    st.error(f"⚠️ Only {trace_count} traceability reference(s) — minimum 2 required")
+                    st.error(f"⚠️ Only {trace_count} traceability reference(s) — minimum 2 required for STRATEGIC THEME")
                 else:
                     st.success(f"✅ {trace_count} traceability references")
                 st.markdown("**Traceability:**")
@@ -962,16 +1252,22 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
                 c_adv, c_vuln = st.columns(2)
                 with c_adv:
                     st.success(f"**Advantage:** {comp.advantage or 'None explicitly supported'}")
-                    if comp.advantage and not comp.advantage_evidence:
+                    adv_evidence = comp.advantage_evidence or ""
+                    if comp.advantage and "INSUFFICIENT_COMPETITIVE_EVIDENCE" in adv_evidence.upper():
+                        st.warning("⚠️ INSUFFICIENT_COMPETITIVE_EVIDENCE — advantage stated but no evidence available.")
+                    elif comp.advantage and not adv_evidence:
                         st.error("❌ No evidence backing for this advantage claim")
-                    elif comp.advantage_evidence:
-                        st.caption(f"**Evidence:** {comp.advantage_evidence}")
+                    elif adv_evidence:
+                        st.caption(f"**Evidence:** {adv_evidence}")
                 with c_vuln:
                     st.error(f"**Vulnerability:** {comp.vulnerability or 'None explicitly supported'}")
-                    if comp.vulnerability and not comp.vulnerability_evidence:
+                    vuln_evidence = comp.vulnerability_evidence or ""
+                    if comp.vulnerability and "INSUFFICIENT_COMPETITIVE_EVIDENCE" in vuln_evidence.upper():
+                        st.warning("⚠️ INSUFFICIENT_COMPETITIVE_EVIDENCE — vulnerability stated but no evidence available.")
+                    elif comp.vulnerability and not vuln_evidence:
                         st.error("❌ No evidence backing for this vulnerability claim")
-                    elif comp.vulnerability_evidence:
-                        st.caption(f"**Evidence:** {comp.vulnerability_evidence}")
+                    elif vuln_evidence:
+                        st.caption(f"**Evidence:** {vuln_evidence}")
 
         # 4. EVALUATED OPTIONS WITH NUMERIC SCORES
         st.markdown("### 4. Evaluated Options (Scored & Ranked)")
@@ -1045,6 +1341,12 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
 
             st.markdown("**Confidence Assessment:**")
             st.markdown(f"`{final_brief.confidence_assessment or 'N/A'}`")
+
+            # Req 11 — deterministic confidence label (overrides LLM-generated confidence)
+            conf_label, conf_explanation = calibrate_confidence_label(verified_facts)
+            conf_color = {"HIGH": "green", "MEDIUM-HIGH": "blue", "MEDIUM": "orange", "LOW": "red"}.get(conf_label, "gray")
+            st.markdown(f"**Calibrated Evidence Confidence:** :{conf_color}[{conf_label}]")
+            st.caption(f"_{conf_explanation}_")
 
         # Export — now includes quality scores and rejection log
         st.divider()
