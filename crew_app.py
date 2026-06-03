@@ -7,7 +7,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from ddgs import DDGS
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Union
 from urllib.parse import urlparse
 
 # ==========================================
@@ -135,7 +135,7 @@ def invoke_json(prompt: str) -> dict:
     return json.loads(text)
 
 # ==========================================
-# 6. PYDANTIC MODELS (NEW TRACEABILITY CHAIN)
+# 6. PYDANTIC MODELS (BULLETPROOF SCHEMAS)
 # ==========================================
 class EntityProfile(BaseModel):
     canonical_name: str
@@ -172,41 +172,40 @@ class StrategicSignal(BaseModel):
     urgency: str
     implication: str
 
-# --- NEW EXPERT REASONING MODELS ---
+# --- EXPERT REASONING MODELS (FULLY OPTIONALIZED) ---
 
 class EvidenceLog(BaseModel):
-    evidence: str
-    observation: str
-    root_cause_and_class: str = Field(description="Format: [Cause] | [CONFIRMED/LIKELY/HYPOTHESIS/UNKNOWN]")
+    evidence: Optional[str] = None
+    observation: Optional[str] = None
+    root_cause_and_class: Optional[str] = Field(default=None, description="Format: [Cause] | [CONFIRMED/LIKELY/HYPOTHESIS/UNKNOWN]")
 
 class ThemeSignal(BaseModel):
-    name: str
-    type: str = Field(description="Must be STRATEGIC THEME or EMERGING SIGNAL")
-    traceability: List[str] = Field(description="List of observations/facts supporting this")
+    name: Optional[str] = None
+    type: Optional[str] = Field(default=None, description="Must be STRATEGIC THEME or EMERGING SIGNAL")
+    traceability: List[str] = Field(default_factory=list, description="List of observations/facts supporting this")
 
 class CompetitiveLandscape(BaseModel):
-    competitor: str
-    advantage: str
-    advantage_evidence: str
-    vulnerability: str
-    vulnerability_evidence: str
+    competitor: Optional[str] = None
+    advantage: Optional[str] = None
+    advantage_evidence: Optional[str] = None
+    vulnerability: Optional[str] = None
+    vulnerability_evidence: Optional[str] = None
 
 class EvaluatedOption(BaseModel):
-    description: str
-    traceability_chain: str = Field(description="Supported by Theme [X] -> Root Cause [Y] -> Observation [Z] -> Evidence [A]")
-    generic_test_passed: str = Field(description="Yes or No")
+    description: Optional[str] = None
+    # Allowed to be a string or a list to prevent crashes when LLM formats it as steps
+    traceability_chain: Union[str, List[str], None] = Field(default=None, description="Supported by Theme [X] -> Root Cause [Y] -> Observation [Z] -> Evidence [A]")
+    generic_test_passed: Optional[str] = Field(default=None, description="Yes or No")
 
 class DecisionIntelligenceBrief(BaseModel):
     status: str = Field(description="Must be exactly 'SUFFICIENT' or 'INSUFFICIENT_EVIDENCE'")
-    reason: str = Field(description="Explanation of the sufficiency status based on input gates.")
+    reason: Optional[str] = Field(default=None, description="Explanation of the sufficiency status based on input gates.")
     
-    # Defaults to empty lists to avoid crashes when data is insufficient
     evidence_and_observation_log: List[EvidenceLog] = Field(default_factory=list)
     strategic_themes_and_signals: List[ThemeSignal] = Field(default_factory=list)
     competitive_landscape: List[CompetitiveLandscape] = Field(default_factory=list)
     evaluated_options: List[EvaluatedOption] = Field(default_factory=list)
     
-    # Made Optional to prevent validation crashes during INSUFFICIENT_EVIDENCE
     recommended_decision: Optional[str] = Field(default=None, description="The final recommendation, if evidence permits.")
     contradicting_evidence: Optional[str] = Field(default=None, description="Evidence challenging the decision, if applicable.")
     confidence_assessment: Optional[str] = Field(default=None, description="System confidence, if a conclusion was reached.")
@@ -315,7 +314,7 @@ Validated Facts:
     except Exception as e:
         return []
 
-# --- AGENT 5: EXPERT REASONING SYSTEM (UPDATED PROMPT) ---
+# --- AGENT 5: EXPERT REASONING SYSTEM ---
 def run_expert_reasoner(
     company: str, entity: EntityProfile, verified_facts: List[ValidatedFact], 
     signals: List[StrategicSignal], evidence_sufficient: bool, sufficiency_message: str
@@ -470,19 +469,19 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
 
         if final_brief.status == "INSUFFICIENT_EVIDENCE":
             st.error(f"🛑 **DATA SUFFICIENCY GATE FAILED**")
-            st.warning(f"**Reason:** {final_brief.reason}")
+            st.warning(f"**Reason:** {final_brief.reason or 'Insufficient evidence provided.'}")
             st.info("Reliable conclusions cannot be generated from the available evidence. Strategy generation aborted.")
-            st.stop() # UI explicitly stops rendering here, safely ignoring the Optional fields below
+            st.stop()
         else:
-            st.success(f"✅ **DATA SUFFICIENCY GATE PASSED**\n{final_brief.reason}")
+            st.success(f"✅ **DATA SUFFICIENCY GATE PASSED**\n{final_brief.reason or 'Evidence meets threshold.'}")
 
         # 1. EVIDENCE & OBSERVATION LOG
         st.markdown("### 1. Evidence & Observation Log")
         for log in final_brief.evidence_and_observation_log:
             with st.container(border=True):
-                st.markdown(f"**Evidence:** `{log.evidence}`")
-                st.info(f"**Observation:** {log.observation}")
-                st.warning(f"**Root Cause & Class:** {log.root_cause_and_class}")
+                st.markdown(f"**Evidence:** `{log.evidence or 'N/A'}`")
+                st.info(f"**Observation:** {log.observation or 'N/A'}")
+                st.warning(f"**Root Cause & Class:** {log.root_cause_and_class or 'N/A'}")
 
         # 2. STRATEGIC THEMES & SIGNALS
         st.markdown("### 2. Strategic Themes & Signals")
@@ -490,9 +489,10 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
         for i, ts in enumerate(final_brief.strategic_themes_and_signals):
             col = c1 if i % 2 == 0 else c2
             with col.container(border=True):
-                st.subheader(ts.name)
-                type_color = "green" if "THEME" in ts.type else "orange"
-                st.markdown(f"**Type:** :{type_color}[{ts.type}]")
+                st.subheader(ts.name or "Unnamed Theme")
+                type_val = ts.type or "UNKNOWN"
+                type_color = "green" if "THEME" in type_val else "orange"
+                st.markdown(f"**Type:** :{type_color}[{type_val}]")
                 st.markdown("**Traceability:**")
                 for trace in ts.traceability:
                     st.markdown(f"- {trace}")
@@ -501,32 +501,40 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
         st.markdown("### 3. Competitive Landscape (Strict)")
         for comp in final_brief.competitive_landscape:
             with st.container(border=True):
-                st.markdown(f"**Competitor:** {comp.competitor}")
+                st.markdown(f"**Competitor:** {comp.competitor or 'N/A'}")
                 c_adv, c_vuln = st.columns(2)
                 with c_adv:
-                    st.success(f"**Advantage:** {comp.advantage}")
-                    st.caption(f"**Evidence:** {comp.advantage_evidence}")
+                    st.success(f"**Advantage:** {comp.advantage or 'None explicitly supported'}")
+                    st.caption(f"**Evidence:** {comp.advantage_evidence or 'N/A'}")
                 with c_vuln:
-                    st.error(f"**Vulnerability:** {comp.vulnerability}")
-                    st.caption(f"**Evidence:** {comp.vulnerability_evidence}")
+                    st.error(f"**Vulnerability:** {comp.vulnerability or 'None explicitly supported'}")
+                    st.caption(f"**Evidence:** {comp.vulnerability_evidence or 'N/A'}")
 
         # 4. EVALUATED OPTIONS
         st.markdown("### 4. Evaluated Options")
         for opt in final_brief.evaluated_options:
             with st.container(border=True):
-                st.markdown(f"**Option:** {opt.description}")
-                st.info(f"**Traceability Chain:**\n{opt.traceability_chain}")
-                if "Yes" in opt.generic_test_passed:
+                st.markdown(f"**Option:** {opt.description or 'N/A'}")
+                
+                # Handle chain rendering safely whether it's a list or a string
+                chain = opt.traceability_chain
+                if isinstance(chain, list):
+                    chain = "\n-> ".join(chain)
+                st.info(f"**Traceability Chain:**\n{chain or 'N/A'}")
+                
+                passed_test = opt.generic_test_passed or ""
+                if "Yes" in passed_test:
                     st.success("✅ **Passed Generic Test:** Uniquely applies to this situation.")
-                else:
+                elif "No" in passed_test:
                     st.error("❌ **Failed Generic Test:** Recommendation is too generic.")
+                else:
+                    st.warning("⚠️ **Generic Test:** Status Unknown")
 
         # 5. FINAL DECISION & INTEGRITY CHECK
         st.markdown("### 5. Final Decision & Integrity Check")
         with st.container(border=True):
             st.subheader("Recommended Decision")
             
-            # Using `.get()` or basic truthiness to safely handle optional fields
             if final_brief.recommended_decision:
                 st.success(final_brief.recommended_decision)
             else:
