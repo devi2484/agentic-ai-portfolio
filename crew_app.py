@@ -3,10 +3,11 @@ import json
 import time
 import streamlit as st
 from langchain_groq import ChatGroq
+from langchain_core.messages import SystemMessage, HumanMessage
 from ddgs import DDGS
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 from urllib.parse import urlparse
 
 # ==========================================
@@ -15,9 +16,8 @@ from urllib.parse import urlparse
 load_dotenv()
 GROQ_KEY = os.getenv("GROQ_KEY") or st.secrets.get("GROQ_KEY", "")
 
-# llama-3.1-8b-instant — separate TPD quota from 70b, handles structured output well
-llm_heavy = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant", temperature=0.1)
-llm_fast  = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant", temperature=0.1)
+# Single model — plain invoke, no tool-call schema (avoids all 400 errors)
+llm = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant", temperature=0.1)
 
 st.set_page_config(page_title="AI Intelligence Engine", page_icon="♟️", layout="wide")
 st.title("♟️ Strategic Intelligence Engine")
@@ -41,41 +41,26 @@ LOW_TRUST_DOMAINS = [
     "linkedin.com", "reddit.com", "quora.com", "wikipedia.org",
     "medium.com", "twitter.com", "x.com"
 ]
-
-# Numeric trust scores used in programmatic confidence calculation
-TRUST_SCORE_MAP = {
-    "HIGH TRUST": 10,
-    "MEDIUM TRUST": 6,
-    "LOW TRUST": 2,
-}
+TRUST_SCORE_MAP = {"HIGH TRUST": 10, "MEDIUM TRUST": 6, "LOW TRUST": 2}
 
 def evaluate_trust(url: str) -> str:
     domain = urlparse(url).netloc.lower().replace("www.", "")
-    if any(ht in domain for ht in HIGH_TRUST_DOMAINS):
-        return "HIGH TRUST"
-    if any(mt in domain for mt in MEDIUM_TRUST_DOMAINS):
-        return "MEDIUM TRUST"
-    if any(lt in domain for lt in LOW_TRUST_DOMAINS):
-        return "LOW TRUST"
+    if any(h in domain for h in HIGH_TRUST_DOMAINS):   return "HIGH TRUST"
+    if any(m in domain for m in MEDIUM_TRUST_DOMAINS): return "MEDIUM TRUST"
+    if any(l in domain for l in LOW_TRUST_DOMAINS):    return "LOW TRUST"
     return "MEDIUM TRUST"
 
 def calculate_confidence(trust_label: str, board_relevance: int, strategic_impact: int) -> int:
-    """
-    Programmatic confidence — never LLM-invented.
-    Formula: (trust_score * 0.4) + (board_relevance * 0.3) + (strategic_impact * 0.3)
-    Scaled to 0-100.
-    """
-    trust_score = TRUST_SCORE_MAP.get(trust_label.split("(")[0].strip(), 5)
+    trust_score = TRUST_SCORE_MAP.get(trust_label.strip(), 5)
     raw = (trust_score * 0.4) + (board_relevance * 0.3) + (strategic_impact * 0.3)
     return int((raw / 10) * 100)
 
 def run_enhanced_search(company: str) -> str:
-    """5-query search — highest signal-to-token ratio queries only."""
     queries = [
         f"{company} revenue profit margin 2025",
         f"{company} market share competitors 2025",
         f"{company} capital allocation acquisition strategic pivot 2025",
-        f"{company} regulatory risk supply chain pressure 2025",
+        f"{company} regulatory risk supply chain 2025",
         f"{company} AI investment pricing power 2025",
     ]
     results = []
@@ -84,63 +69,48 @@ def run_enhanced_search(company: str) -> str:
             for q in queries:
                 for r in ddgs.text(q, max_results=2, timelimit="y"):
                     url = r.get("href", "")
-                    trust = evaluate_trust(url)
                     results.append(
-                        f"SOURCE: {url}\nTRUST: {trust}\n"
-                        f"CONTENT: {r.get('title', '')} — {r.get('body', '')}\n"
-                        f"{'-' * 40}"
+                        f"SOURCE: {url}\nTRUST: {evaluate_trust(url)}\n"
+                        f"CONTENT: {r.get('title','')} — {r.get('body','')}\n{'-'*40}"
                     )
     except Exception as e:
-        st.error(f"Search API Error: {e}")
+        st.error(f"Search error: {e}")
     return "\n".join(results)
 
 # ==========================================
-# 3. PYDANTIC SCHEMAS
+# 3. JSON INVOKE HELPER
+# Bypasses with_structured_output entirely — no Groq tool-call validator = no 400 errors
 # ==========================================
+def invoke_json(prompt: str) -> dict:
+    """Call LLM, strip markdown fences, parse JSON. Returns dict or raises."""
+    messages = [
+        SystemMessage(content="You are a precise JSON-only responder. Output ONLY valid JSON. No markdown, no explanation, no code fences."),
+        HumanMessage(content=prompt)
+    ]
+    resp = llm.invoke(messages)
+    text = resp.content.strip()
+    # Strip markdown fences if present
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    text = text.strip().rstrip("```").strip()
+    return json.loads(text)
 
-# --- Research Agent ---
+# ==========================================
+# 4. PYDANTIC MODELS (for internal use / display only — not sent to Groq)
+# ==========================================
 class IntelligenceFact(BaseModel):
-    category: str = Field(
-        description="Must be exactly one of: Profitability, Growth, Competitive Threat, Competitive Advantage, Capital Allocation, Strategic Shift"
-    )
-    fact: str = Field(
-        description=(
-            "One specific, verifiable fact from the source. "
-            "Include numbers or dates where present. "
-            "HARD REJECT: founding dates, awards, executive bios, "
-            "company descriptions, social media, product launches >18 months old."
-        )
-    )
-    why_it_matters: str = Field(
-        description="Why would the board care if this fact disappeared tomorrow? If they wouldn't — reject it."
-    )
-    board_relevance: int = Field(description="1-10. Only include if >= 8.")
-    strategic_impact: int = Field(description="1-10. Only include if >= 8.")
-    source_url: str = Field(description="Exact source URL.")
-    source_trust: str = Field(description="Copy exactly from TRUST label in raw context: HIGH TRUST, MEDIUM TRUST, or LOW TRUST.")
-    
-    # FIX: Added 'default' to prevent 400 validation crashes if the LLM skips these keys
-    date_signal: str = Field(
-        default="Undated",
-        description="Date from the source e.g. 'Q1 2025'. If absent write 'Undated'."
-    )
-    competitor_context: str = Field(
-        default="No benchmark available",
-        description="Named competitor comparison. If none exists write 'No benchmark available'."
-    )
+    category: str
+    fact: str
+    why_it_matters: str
+    board_relevance: int
+    strategic_impact: int
+    source_url: str
+    source_trust: str
+    date_signal: str = "Undated"
+    competitor_context: str = "No benchmark available"
 
-class ResearchReport(BaseModel):
-    company: str
-    facts: List[IntelligenceFact] = Field(
-        description=(
-            "Return EXACTLY 6 facts — one per category: "
-            "Profitability, Growth, Competitive Threat, Competitive Advantage, "
-            "Capital Allocation, Strategic Shift. "
-            "If a category has no qualifying data write that explicitly."
-        )
-    )
-
-# --- Validated Fact (produced programmatically, not by LLM) ---
 class ValidatedFact(BaseModel):
     category: str
     fact: str
@@ -151,292 +121,265 @@ class ValidatedFact(BaseModel):
     competitor_context: str
     board_relevance: int
     strategic_impact: int
-    confidence: int  # Calculated programmatically
+    confidence: int
 
-# ==========================================
-# ENUM NORMALIZATION
-# ==========================================
-SIGNAL_TYPES = [
-    "Emerging Threat", "Emerging Opportunity", "Strategic Inflection",
-    "Capital Shift", "Competitive Surprise", "Moat Erosion", "Moat Strengthening",
-    "Regulatory Risk", "Margin Compression", "Pricing Pressure"
-]
-URGENCY_VALUES   = ["IMMEDIATE", "90-DAY", "6-MONTH", "WATCH"]
-THREAT_TYPES     = ["Fastest Growing", "Largest Threat", "Weakening Moat",
-                    "Strengthening Moat", "Competitive Surprise", "Most Likely Future Threat"]
-FRAMEWORKS       = ["STOP", "START", "DOUBLE DOWN"]
-
-def _closest(value: str, options: list, default: str) -> str:
-    v = value.strip()
-    if v in options:
-        return v
-    v_lower = v.lower()
-    for o in options:
-        if o.lower() == v_lower:
-            return o
-    for o in options:
-        if v_lower in o.lower() or o.lower() in v_lower:
-            return o
-    return default
-
-# --- Signal Detector (runs ONLY on validated facts) ---
 class StrategicSignal(BaseModel):
-    signal_type: str = Field(description=f"Must be one of: {', '.join(SIGNAL_TYPES)}")
-    signal: str = Field(description="The specific inflection point observed.")
-    urgency: str = Field(description=f"Must be one of: {', '.join(URGENCY_VALUES)}")
-    evidence_fact: str = Field(description="The exact validated fact that triggered this signal.")
+    signal_type: str
+    signal: str
+    urgency: str
+    evidence_fact: str
 
-class SignalReport(BaseModel):
-    signals: List[StrategicSignal]
-
-def normalize_signals(report: SignalReport) -> SignalReport:
-    for s in report.signals:
-        s.signal_type = _closest(s.signal_type, SIGNAL_TYPES, "Emerging Threat")
-        s.urgency     = _closest(s.urgency,      URGENCY_VALUES, "WATCH")
-    return report
-
-# --- Competitor Intelligence ---
 class CompetitorIntel(BaseModel):
     competitor_name: str
-    threat_type: str = Field(description=f"Must be one of: {', '.join(THREAT_TYPES)}")
-    threat_summary: str = Field(description="Specific move or metric making them a threat.")
-    advantage_summary: str = Field(description="Where the target company still has an edge.")
-    recommended_response: str = Field(
-        description=(
-            "Hyper-specific counter-move naming markets, product lines, or channels. "
-            "FORBIDDEN: 'improve innovation', 'focus on customers', 'optimize operations', "
-            "'review strategy', 'increase efficiency'."
-        )
-    )
+    threat_type: str
+    threat_summary: str
+    advantage_summary: str
+    recommended_response: str
 
-class CompetitorReport(BaseModel):
-    competitors: List[CompetitorIntel]
-
-def normalize_competitors(report: CompetitorReport) -> CompetitorReport:
-    for c in report.competitors:
-        c.threat_type = _closest(c.threat_type, THREAT_TYPES, "Largest Threat")
-    return report
-
-# --- Strategic Action ---
 class StrategicAction(BaseModel):
-    framework: str = Field(description=f"Must be one of: {', '.join(FRAMEWORKS)}")
-    evidence: str = Field(description="The specific validated fact driving this recommendation.")
-    implication: str = Field(description="The 'So What?' — why this changes competitive dynamics.")
-    competitor_context: str = Field(description="How a named competitor is positioned on this dimension.")
-    action: str = Field(
-        description=(
-            "Hyper-specific directive naming markets, product lines, channels, or supply chain nodes. "
-            "FORBIDDEN: 'improve innovation', 'focus on customers', 'optimize operations', "
-            "'review strategy', 'increase efficiency', 'enhance marketing', 'explore opportunities'."
-        )
-    )
-    expected_impact: str = Field(
-        description=(
-            "Use qualitative language only. "
-            "NEVER invent dollar values, percentages, or market share figures not in evidence."
-        )
-    )
-    risk: str = Field(description="Primary risk if this action is taken or ignored.")
-    timeline: str = Field(description="Future-dated only. e.g. '90 Days', '6 Months', 'Q3 2025'.")
-    confidence: int = Field(description="1-100 based on evidence quality.")
+    framework: str
+    evidence: str
+    implication: str
+    competitor_context: str
+    action: str
+    expected_impact: str
+    risk: str
+    timeline: str
 
-# --- Board Brief ---
 class CEOBrief(BaseModel):
-    company_health_score: int = Field(description="0-100 composite: profitability + growth trajectory + competitive position.")
-    report_confidence: int = Field(description="0-100 based on validated fact quality and source trust.")
-    narrative_what_changed: str = Field(description="Specific recent shift in market, unit economics, or competitive position — with evidence.")
-    narrative_why_now: str = Field(description="The specific catalyst demanding action now, not in 6 months.")
-    narrative_primary_move: str = Field(description="Single most important strategic pivot — hyper-specific.")
-    biggest_opportunity: str = Field(description="Highest-upside move supported by evidence.")
-    biggest_risk: str = Field(description="Most dangerous unaddressed threat if left alone.")
-    do_not_do: str = Field(description="Most tempting but strategically wrong move given current evidence.")
-    board_message: str = Field(description="3-sentence executive summary: urgency + evidence-backed insight + call to action.")
-    prioritized_actions: List[StrategicAction] = Field(description="Exactly 3 actions ranked by strategic impact, highest first.")
+    company_health_score: int
+    report_confidence: int
+    narrative_what_changed: str
+    narrative_why_now: str
+    narrative_primary_move: str
+    biggest_opportunity: str
+    biggest_risk: str
+    do_not_do: str
+    board_message: str
+    prioritized_actions: List[StrategicAction]
 
 # ==========================================
-# 4. PIPELINE — CORRECT ORDER
+# 5. PIPELINE AGENTS
 # ==========================================
 
-def run_researcher(company: str, raw_context: str) -> ResearchReport:
-    """Goldman Sachs Research Analyst — extracts strategic signals, not trivia. Uses 8b for reasoning depth."""
-    structured_llm = llm_heavy.with_structured_output(ResearchReport)
-    prompt = f"""You are a Goldman Sachs Research Analyst preparing a fact pack for a Managing Director.
+FACT_CATEGORIES = ["Profitability", "Growth", "Competitive Threat",
+                   "Competitive Advantage", "Capital Allocation", "Strategic Shift"]
 
-GOLDEN RULE: Before accepting any fact ask: "If this fact disappeared tomorrow, would the board care?"
-If NO — reject it immediately.
+def run_researcher(company: str, raw_context: str) -> List[IntelligenceFact]:
+    prompt = f"""You are a Goldman Sachs Research Analyst. Extract strategic intelligence for {company}.
 
-MANDATORY OUTPUT: Exactly 6 facts, one per category:
-1. Profitability — revenue, margins, EBITDA, unit economics
-2. Growth — GMV, user growth, market expansion, revenue trajectory  
-3. Competitive Threat — a named competitor gaining ground on {company}
-4. Competitive Advantage — where {company} is winning vs competitors
-5. Capital Allocation — fundraising, capex, acquisitions, burn rate
-6. Strategic Shift — pivot, new market, AI investment, regulatory response
+GOLDEN RULE: "If this fact disappeared tomorrow, would the board care?" If NO — reject it.
 
-HARD REJECT LIST:
-- Company founding dates or history
-- Product launches older than 18 months
-- Awards, PR announcements, rankings
-- Executive biographies or appointments
-- Generic industry trends with no {company}-specific data
-- Any fact where board_relevance < 8 OR strategic_impact < 8
+Return a JSON object with this exact structure:
+{{
+  "facts": [
+    {{
+      "category": "Profitability",
+      "fact": "specific fact with numbers",
+      "why_it_matters": "board-level reason",
+      "board_relevance": 9,
+      "strategic_impact": 9,
+      "source_url": "https://...",
+      "source_trust": "HIGH TRUST or MEDIUM TRUST or LOW TRUST",
+      "date_signal": "Q1 2025 or Undated",
+      "competitor_context": "vs CompetitorName or No benchmark available"
+    }}
+  ]
+}}
 
-For source_trust: copy EXACTLY from the TRUST label in the raw context (HIGH TRUST / MEDIUM TRUST / LOW TRUST).
-For financials: exact numbers if present. If absent — qualitative language only. NEVER invent figures.
+Return EXACTLY 6 facts — one per category: {", ".join(FACT_CATEGORIES)}
 
-CRITICAL JSON FORMATTING RULES:
-1. Do NOT escape single quotes (\'). (e.g., write "Company's", not "Company\'s"). This creates invalid JSON.
-2. Escape all line breaks as '\\n'.
-3. Always return valid, strictly formatted JSON.
-4. IMPORTANT: You MUST include every key from the schema in your JSON (especially 'competitor_context' and 'date_signal'). Do not skip them.
+HARD REJECT: founding dates, awards, executive bios, social media, product launches >18 months old.
+Only include facts where board_relevance >= 8 AND strategic_impact >= 8.
+source_trust must be copied EXACTLY from the TRUST label in the context.
+NEVER invent numbers. Use qualitative language if no hard data exists.
 
 Raw Search Context:
 {raw_context}"""
-    return structured_llm.invoke(prompt)
+
+    try:
+        data = invoke_json(prompt)
+        facts = []
+        for f in data.get("facts", []):
+            try:
+                facts.append(IntelligenceFact(**f))
+            except Exception:
+                continue
+        return facts
+    except Exception as e:
+        st.warning(f"Researcher parse error: {e}")
+        return []
 
 
 def run_hard_gate_validation(facts: List[IntelligenceFact]) -> List[ValidatedFact]:
-    """Programmatic hard gate — no LLM involvement."""
     verified = []
     for f in facts:
         if f.board_relevance < 8 or f.strategic_impact < 8:
             continue
-        trust_key = f.source_trust.split("(")[0].strip()
-        if trust_key == "LOW TRUST":
+        if "LOW TRUST" in f.source_trust:
             continue
         confidence = calculate_confidence(f.source_trust, f.board_relevance, f.strategic_impact)
         if confidence < 70:
             continue
-        if "Undated" in f.date_signal and trust_key != "HIGH TRUST":
+        if f.date_signal == "Undated" and "HIGH TRUST" not in f.source_trust:
             continue
         verified.append(ValidatedFact(
-            category=f.category,
-            fact=f.fact,
-            why_it_matters=f.why_it_matters,
-            source_url=f.source_url,
-            source_trust=f.source_trust,
-            date_signal=f.date_signal,
-            competitor_context=f.competitor_context,
-            board_relevance=f.board_relevance,
-            strategic_impact=f.strategic_impact,
+            category=f.category, fact=f.fact, why_it_matters=f.why_it_matters,
+            source_url=f.source_url, source_trust=f.source_trust,
+            date_signal=f.date_signal, competitor_context=f.competitor_context,
+            board_relevance=f.board_relevance, strategic_impact=f.strategic_impact,
             confidence=confidence,
         ))
     return verified
 
 
-def run_competitor_intel(company: str, raw_context: str) -> CompetitorReport:
-    """Competitor Intelligence — uses 8b model, structured extraction task."""
-    structured_llm = llm_fast.with_structured_output(CompetitorReport)
-    prompt = f"""You are a Competitive Intelligence Specialist. Your output goes directly to the CEO.
+def run_competitor_intel(company: str, raw_context: str) -> List[CompetitorIntel]:
+    prompt = f"""You are a Competitive Intelligence Specialist analysing {company}. Output goes to the CEO.
 
-From the search context identify up to 3 NAMED competitors for {company}.
-Name them specifically (e.g. "Swiggy", not "a competitor").
+Return a JSON object:
+{{
+  "competitors": [
+    {{
+      "competitor_name": "exact name e.g. Swiggy",
+      "threat_type": "one of: Fastest Growing, Largest Threat, Weakening Moat, Strengthening Moat, Competitive Surprise, Most Likely Future Threat",
+      "threat_summary": "specific threat with data if available",
+      "advantage_summary": "where {company} still leads",
+      "recommended_response": "specific counter-move naming markets or product lines"
+    }}
+  ]
+}}
 
-For each competitor:
-- State the exact threat with data where available
-- Identify where {company} still has an advantage
-- Give a hyper-specific counter-move naming specific markets, product lines, or channels
-
-FORBIDDEN counter-moves: "improve innovation", "focus on customers", "optimize operations", 
-"review strategy", "increase efficiency", "enhance marketing"
-
-CRITICAL JSON FORMATTING RULES:
-1. Do NOT escape single quotes (\'). (e.g., write "Company's", not "Company\'s"). This creates invalid JSON.
-2. Escape all line breaks as '\\n'.
-3. Always return valid, strictly formatted JSON.
+Identify up to 3 NAMED competitors only. Use real company names.
+FORBIDDEN responses: improve innovation, focus on customers, optimize operations, review strategy.
 
 Raw Search Context:
 {raw_context}"""
-    return structured_llm.invoke(prompt)
+
+    try:
+        data = invoke_json(prompt)
+        comps = []
+        for c in data.get("competitors", []):
+            try:
+                comps.append(CompetitorIntel(**c))
+            except Exception:
+                continue
+        return comps
+    except Exception as e:
+        st.warning(f"Competitor intel parse error: {e}")
+        return []
 
 
-def run_signal_detector(company: str, verified_facts: List[ValidatedFact]) -> SignalReport:
-    """Uses 8b model — classification task, not deep reasoning."""
-    structured_llm = llm_fast.with_structured_output(SignalReport)
+def run_signal_detector(company: str, verified_facts: List[ValidatedFact]) -> List[StrategicSignal]:
+    if not verified_facts:
+        return []
+
     fact_text = "\n".join([
-        f"[{f.category} | {f.source_trust} | {f.date_signal}] {f.fact} | Why it matters: {f.why_it_matters}"
+        f"[{f.category} | {f.source_trust} | {f.date_signal}] {f.fact}"
         for f in verified_facts
     ])
+
     prompt = f"""You are a Strategic Signal Detector for {company}.
-Identify inflection points from ONLY the validated facts below.
+Identify inflection points from the validated facts below.
 
-URGENCY:
-- IMMEDIATE: action required within 30 days
-- 90-DAY: decision required this quarter
-- 6-MONTH: on strategic roadmap
-- WATCH: monitor, no action yet
+Return a JSON object:
+{{
+  "signals": [
+    {{
+      "signal_type": "one of: Emerging Threat, Emerging Opportunity, Strategic Inflection, Capital Shift, Competitive Surprise, Moat Erosion, Moat Strengthening, Regulatory Risk, Margin Compression, Pricing Pressure",
+      "signal": "specific inflection point",
+      "urgency": "one of: IMMEDIATE, 90-DAY, 6-MONTH, WATCH",
+      "evidence_fact": "the exact fact that triggered this"
+    }}
+  ]
+}}
 
-CRITICAL JSON FORMATTING RULES:
-1. Do NOT escape single quotes (\'). (e.g., write "Company's", not "Company\'s"). This creates invalid JSON.
-2. Escape all line breaks as '\\n'.
-3. Always return valid, strictly formatted JSON.
-
-Validated Facts:
+Validated Facts (use ONLY these):
 {fact_text}"""
-    return structured_llm.invoke(prompt)
+
+    try:
+        data = invoke_json(prompt)
+        signals = []
+        for s in data.get("signals", []):
+            try:
+                signals.append(StrategicSignal(**s))
+            except Exception:
+                continue
+        return signals
+    except Exception as e:
+        st.warning(f"Signal detector parse error: {e}")
+        return []
 
 
 def run_strategist(company: str, verified_facts: List[ValidatedFact],
-                   signals: List[StrategicSignal], competitors: List[CompetitorIntel]) -> CEOBrief:
-    """Uses 8b for board-level reasoning quality."""
-    structured_llm = llm_heavy.with_structured_output(CEOBrief)
+                   signals: List[StrategicSignal], competitors: List[CompetitorIntel]) -> Optional[CEOBrief]:
 
-    if not verified_facts:
-        fact_text = (
-            f"INTELLIGENCE FAILURE: No high-trust verified data found for {company}. "
-            "Recommend halting discretionary capital allocation until primary-source data "
-            "(investor relations, earnings call, regulatory filing) is obtained."
-        )
-    else:
-        fact_text = "\n".join([
-            f"[{f.category} | Confidence {f.confidence}%] {f.fact} | {f.why_it_matters}"
-            for f in verified_facts
-        ])
+    fact_text = "\n".join([
+        f"[{f.category} | {f.confidence}% confidence] {f.fact} | {f.why_it_matters}"
+        for f in verified_facts
+    ]) if verified_facts else f"INTELLIGENCE FAILURE: No verified data for {company}."
 
-    signal_text = "\n".join([
-        f"[{s.signal_type} | {s.urgency}] {s.signal}"
-        for s in signals
-    ]) if signals else "No signals detected."
-
-    competitor_text = "\n".join([
-        f"[{c.threat_type}] {c.competitor_name}: {c.threat_summary} | Edge: {c.advantage_summary}"
-        for c in competitors
-    ]) if competitors else "No competitor data found."
+    signal_text = "\n".join([f"[{s.signal_type}|{s.urgency}] {s.signal}" for s in signals]) or "None"
+    competitor_text = "\n".join([f"[{c.threat_type}] {c.competitor_name}: {c.threat_summary}" for c in competitors]) or "None"
 
     prompt = f"""You are a McKinsey Senior Partner presenting to the Board of {company}.
-This is a board memo — not an MBA essay, not a summary, not generic AI analysis.
 
-MANDATORY CHAIN for every action:
-Evidence → Implication → Competitor Context → Action → Expected Impact → Risk
+Return a JSON object with this EXACT structure — no extra fields, no missing fields:
+{{
+  "company_health_score": 75,
+  "report_confidence": 80,
+  "narrative_what_changed": "specific recent shift with evidence",
+  "narrative_why_now": "specific catalyst for immediate action",
+  "narrative_primary_move": "hyper-specific single most important pivot",
+  "biggest_opportunity": "highest-upside move from evidence",
+  "biggest_risk": "most dangerous unaddressed threat",
+  "do_not_do": "most tempting but wrong move",
+  "board_message": "3-sentence: urgency + evidence + call to action",
+  "prioritized_actions": [
+    {{
+      "framework": "STOP or START or DOUBLE DOWN",
+      "evidence": "exact verified fact",
+      "implication": "so what — why this changes competitive dynamics",
+      "competitor_context": "how a named competitor is positioned",
+      "action": "specific directive naming markets/products/channels",
+      "expected_impact": "qualitative impact — no invented numbers",
+      "risk": "primary risk if taken or ignored",
+      "timeline": "90 Days or 6 Months or Q3 2025"
+    }}
+  ]
+}}
 
 RULES:
-1. Every action must be traceable to a specific verified fact below.
-2. FORBIDDEN actions: "improve innovation", "focus on customers", "optimize operations",
-   "review strategy", "increase efficiency", "enhance marketing", "explore opportunities"
-3. Actions must name specific markets, product lines, channels, or supply chain nodes.
-4. ANTI-HALLUCINATION: Never invent dollar values, percentages, market share, or timelines.
-   Use qualitative language when hard numbers are absent.
-5. Timelines must be future-dated. Never reference past dates.
-6. Provide EXACTLY 3 actions ranked by strategic impact (highest first).
+- EXACTLY 3 prioritized_actions, ranked by strategic impact
+- NEVER invent dollar values, percentages, or market share
+- Actions must name specific markets, product lines, or channels
+- FORBIDDEN actions: improve innovation, focus on customers, optimize operations, review strategy
 
-CRITICAL JSON FORMATTING RULES:
-1. Do NOT escape single quotes (\'). (e.g., write "Company's", not "Company\'s"). This creates invalid JSON.
-2. Escape all line breaks as '\\n'.
-3. Always return valid, strictly formatted JSON.
-
-Verified Evidence (ONLY these facts may be used):
+Verified Evidence:
 {fact_text}
 
-Strategic Signals:
+Signals:
 {signal_text}
 
 Competitor Intelligence:
 {competitor_text}"""
-    return structured_llm.invoke(prompt)
+
+    try:
+        data = invoke_json(prompt)
+        actions = []
+        for a in data.get("prioritized_actions", []):
+            try:
+                actions.append(StrategicAction(**a))
+            except Exception:
+                continue
+        data["prioritized_actions"] = actions
+        return CEOBrief(**data)
+    except Exception as e:
+        st.error(f"Strategist parse error: {e}")
+        return None
 
 
 # ==========================================
-# 5. STREAMLIT UI
+# 6. STREAMLIT UI
 # ==========================================
 company = st.text_input("Target Company:", placeholder="e.g. Zomato, Reliance, Tesla, Nykaa...")
 
@@ -446,123 +389,85 @@ if st.button("Run Strategic Analysis", type="primary"):
     else:
         with st.status(f"Compiling Board Intelligence on {company}...", expanded=True) as status:
 
-            # STEP 1 — Search
-            st.write("📡 Executing 8-vector competitive intelligence search...")
+            st.write("📡 Executing competitive intelligence search...")
             raw_context = run_enhanced_search(company)
             if not raw_context:
-                st.error("Search API failed to return data.")
+                st.error("Search returned no data.")
                 st.stop()
 
             time.sleep(3)
+            st.write("📊 Researcher — extracting strategic signals...")
+            raw_facts = run_researcher(company, raw_context[:3000])
 
-            # STEP 2 — Research Agent
-            st.write("📊 Goldman Sachs Researcher — extracting strategic signals...")
-            research_data = run_researcher(company, raw_context[:3000])
-
-            # STEP 3 — Hard-Gate Validation
             st.write("🔒 Hard-Gate Validation — programmatic confidence scoring...")
-            verified_facts = run_hard_gate_validation(research_data.facts)
-            st.write(f"   → {len(research_data.facts)} facts extracted · {len(verified_facts)} passed hard gate")
-
-            if not verified_facts:
-                st.warning("No facts passed the hard gate. Report will flag intelligence failure.")
+            verified_facts = run_hard_gate_validation(raw_facts)
+            st.write(f"   → {len(raw_facts)} extracted · {len(verified_facts)} passed gate")
 
             time.sleep(4)
-
-            # STEP 4 — Competitor Intelligence
-            st.write("🎯 Competitor Intelligence — mapping named threats and advantages...")
-            competitor_data = run_competitor_intel(company, raw_context[:2000])
+            st.write("🎯 Competitor Intelligence...")
+            competitors = run_competitor_intel(company, raw_context[:2000])
 
             time.sleep(4)
-
-            # STEP 5 — Signal Detector
-            st.write("🔭 Signal Detector — identifying inflection points from validated facts only...")
-            signal_data = run_signal_detector(company, verified_facts)
+            st.write("🔭 Signal Detector (validated facts only)...")
+            signals = run_signal_detector(company, verified_facts)
 
             time.sleep(4)
-
-            # STEP 6 — Strategist
-            st.write("📋 McKinsey Strategist — synthesizing board brief from verified evidence...")
-            final_brief = run_strategist(
-                company,
-                verified_facts,
-                signal_data.signals,
-                competitor_data.competitors
-            )
+            st.write("📋 Strategist — synthesizing board brief...")
+            final_brief = run_strategist(company, verified_facts, signals, competitors)
 
             status.update(label="Analysis Complete", state="complete")
 
-        # ==========================================
-        # DISPLAY
-        # ==========================================
+        if not final_brief:
+            st.error("Strategist failed to produce a brief. Try again.")
+            st.stop()
 
-        st.subheader("🛡️ Intelligence Pipeline & Verification Logs")
-        total_extracted = len(research_data.facts)
-        passed_gate = len(verified_facts)
-        gate_rate = int((passed_gate / total_extracted * 100)) if total_extracted else 0
+        # --- Pipeline Stats ---
+        st.subheader("🛡️ Intelligence Pipeline")
+        total = len(raw_facts)
+        passed = len(verified_facts)
+        rate = int(passed / total * 100) if total else 0
 
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        col_m1.metric("Facts Extracted", total_extracted)
-        col_m2.metric("Passed Hard Gate", passed_gate)
-        col_m3.metric("Gate Pass Rate", f"{gate_rate}%")
-        col_m4.metric("Signals Detected", len(signal_data.signals))
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Facts Extracted", total)
+        c2.metric("Passed Hard Gate", passed)
+        c3.metric("Gate Pass Rate", f"{rate}%")
+        c4.metric("Signals", len(signals))
 
-        with st.expander("View Pipeline Detail: Facts, Rejections, Signals, Competitor Intel"):
+        with st.expander("View Pipeline Detail"):
+            st.markdown("**✅ Verified Facts**")
+            for vf in verified_facts:
+                st.success(f"**[{vf.category} | {vf.confidence}% | {vf.source_trust} | {vf.date_signal}]**\n\n{vf.fact}\n\n*{vf.why_it_matters}*")
 
-            st.markdown("**✅ Verified Facts (passed all gates)**")
-            if verified_facts:
-                for vf in verified_facts:
-                    st.success(
-                        f"**[{vf.category} | {vf.confidence}% confidence | {vf.source_trust} | {vf.date_signal}]**\n\n"
-                        f"{vf.fact}\n\n*Why it matters: {vf.why_it_matters}*"
-                    )
-            else:
-                st.warning("No facts passed the hard gate.")
-
-            st.markdown("**❌ Rejected Facts (failed hard gate)**")
-            rejected = [
-                f for f in research_data.facts
-                if not any(vf.fact == f.fact for vf in verified_facts)
-            ]
+            st.markdown("**❌ Rejected Facts**")
+            rejected = [f for f in raw_facts if not any(vf.fact == f.fact for vf in verified_facts)]
             for rf in rejected:
                 conf = calculate_confidence(rf.source_trust, rf.board_relevance, rf.strategic_impact)
                 reasons = []
-                if rf.board_relevance < 8:
-                    reasons.append(f"board_relevance={rf.board_relevance} (min 8)")
-                if rf.strategic_impact < 8:
-                    reasons.append(f"strategic_impact={rf.strategic_impact} (min 8)")
-                if "LOW TRUST" in rf.source_trust:
-                    reasons.append("LOW TRUST source")
-                if conf < 70:
-                    reasons.append(f"confidence={conf}% (min 70%)")
-                if "Undated" in rf.date_signal and "HIGH TRUST" not in rf.source_trust:
-                    reasons.append("Undated + non-HIGH-TRUST source")
-                st.error(
-                    f"**[{rf.category} | {conf}% confidence]** {rf.fact}\n\n"
-                    f"*Rejected: {' · '.join(reasons) if reasons else 'Failed gate criteria'}*"
-                )
+                if rf.board_relevance < 8:    reasons.append(f"board_relevance={rf.board_relevance}")
+                if rf.strategic_impact < 8:   reasons.append(f"strategic_impact={rf.strategic_impact}")
+                if "LOW TRUST" in rf.source_trust: reasons.append("LOW TRUST source")
+                if conf < 70:                  reasons.append(f"confidence={conf}%")
+                st.error(f"**[{rf.category} | {conf}%]** {rf.fact}\n\n*Rejected: {' · '.join(reasons) or 'gate criteria'}*")
 
-            if signal_data.signals:
+            if signals:
                 st.divider()
-                st.markdown("**🔭 Strategic Signals (from validated facts only)**")
-                for sig in signal_data.signals:
-                    icon = "🔴" if sig.urgency == "IMMEDIATE" else "🟡" if sig.urgency == "90-DAY" else "🟢"
-                    st.info(f"{icon} **[{sig.signal_type} | {sig.urgency}]** {sig.signal}\n\n*Evidence: {sig.evidence_fact}*")
+                st.markdown("**🔭 Signals**")
+                for s in signals:
+                    icon = "🔴" if s.urgency == "IMMEDIATE" else "🟡" if s.urgency == "90-DAY" else "🟢"
+                    st.info(f"{icon} **[{s.signal_type} | {s.urgency}]** {s.signal}\n\n*Evidence: {s.evidence_fact}*")
 
-            if competitor_data.competitors:
+            if competitors:
                 st.divider()
-                st.markdown("**🎯 Competitor Intelligence**")
-                for c in competitor_data.competitors:
+                st.markdown("**🎯 Competitor Intel**")
+                for c in competitors:
                     st.warning(f"**[{c.threat_type}] {c.competitor_name}:** {c.threat_summary}")
 
+        # --- Board Brief ---
         st.divider()
-        col1, col2, col3 = st.columns([3, 1, 1])
-        with col1:
-            st.header(f"Board-Level Strategic Brief — {company.upper()}")
-        with col2:
-            st.metric("Health Score", f"{final_brief.company_health_score}/100")
-        with col3:
-            st.metric("Report Confidence", f"{final_brief.report_confidence}%")
+        h1, h2, h3 = st.columns([3, 1, 1])
+        with h1: st.header(f"Board-Level Strategic Brief — {company.upper()}")
+        with h2: st.metric("Health Score", f"{final_brief.company_health_score}/100")
+        with h3: st.metric("Report Confidence", f"{final_brief.report_confidence}%")
 
         st.markdown("### 📢 Board Message")
         with st.container(border=True):
@@ -571,35 +476,33 @@ if st.button("Run Strategic Analysis", type="primary"):
         st.markdown("### The Strategic Narrative")
         with st.container(border=True):
             st.markdown(f"**📉 What Changed:** {final_brief.narrative_what_changed}")
-            st.markdown(f"**⏳ Why Now (Catalyst):** {final_brief.narrative_why_now}")
+            st.markdown(f"**⏳ Why Now:** {final_brief.narrative_why_now}")
             st.markdown(f"**🎯 Primary Move:** {final_brief.narrative_primary_move}")
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
+        o1, o2, o3 = st.columns(3)
+        with o1:
             with st.container(border=True):
                 st.markdown("**🚀 Biggest Opportunity**")
                 st.success(final_brief.biggest_opportunity)
-        with c2:
+        with o2:
             with st.container(border=True):
                 st.markdown("**⚠️ Biggest Risk**")
                 st.error(final_brief.biggest_risk)
-        with c3:
+        with o3:
             with st.container(border=True):
                 st.markdown("**🚫 Do NOT Do**")
                 st.warning(final_brief.do_not_do)
 
-        if competitor_data.competitors:
+        if competitors:
             st.markdown("### 🏆 Competitor Benchmarks")
-            for c in competitor_data.competitors:
+            for c in competitors:
                 with st.container(border=True):
                     st.markdown(f"#### ⚔️ {c.competitor_name} — {c.threat_type}")
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        st.markdown("**Their Threat**")
-                        st.error(c.threat_summary)
-                    with col_b:
-                        st.markdown(f"**{company}'s Edge**")
-                        st.success(c.advantage_summary)
+                    ca, cb = st.columns(2)
+                    with ca:
+                        st.markdown("**Their Threat**"); st.error(c.threat_summary)
+                    with cb:
+                        st.markdown(f"**{company}'s Edge**"); st.success(c.advantage_summary)
                     st.markdown(f"**Counter-Move:** {c.recommended_response}")
 
         st.markdown("### Prioritized Strategic Directives")
@@ -607,42 +510,28 @@ if st.button("Run Strategic Analysis", type="primary"):
             icon = "🔴" if action.framework == "STOP" else "🟢" if action.framework == "START" else "🔥"
             with st.container(border=True):
                 st.markdown(f"#### #{i} {icon} **{action.framework}**: {action.action}")
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("**1. Evidence**")
-                    st.info(f"*{action.evidence}*")
-                    st.markdown("**2. Implication (So What?)**")
-                    st.warning(action.implication)
-                    st.markdown("**3. Competitor Context**")
-                    st.caption(action.competitor_context)
-                with c2:
-                    st.markdown("**4. Timeline**")
-                    st.write(f"📅 {action.timeline}")
-                    st.markdown("**5. Expected Impact**")
-                    st.success(action.expected_impact)
-                    st.markdown("**6. Risk**")
-                    st.error(action.risk)
-                    st.caption(f"Action Confidence: {action.confidence}/100")
+                a1, a2 = st.columns(2)
+                with a1:
+                    st.markdown("**1. Evidence**");         st.info(f"*{action.evidence}*")
+                    st.markdown("**2. Implication**");      st.warning(action.implication)
+                    st.markdown("**3. Competitor Context**"); st.caption(action.competitor_context)
+                with a2:
+                    st.markdown("**4. Timeline**");         st.write(f"📅 {action.timeline}")
+                    st.markdown("**5. Expected Impact**");  st.success(action.expected_impact)
+                    st.markdown("**6. Risk**");             st.error(action.risk)
 
         st.divider()
-        export_data = {
+        export = {
             "company": company,
-            "health_score": final_brief.company_health_score,
-            "report_confidence": final_brief.report_confidence,
-            "pipeline_stats": {
-                "facts_extracted": total_extracted,
-                "passed_hard_gate": passed_gate,
-                "gate_pass_rate_pct": gate_rate,
-                "signals_detected": len(signal_data.signals),
-            },
+            "pipeline": {"extracted": total, "passed": passed, "rate_pct": rate, "signals": len(signals)},
             "verified_facts": [vf.model_dump() for vf in verified_facts],
+            "signals": [s.model_dump() for s in signals],
+            "competitor_intel": [c.model_dump() for c in competitors],
             "board_brief": final_brief.model_dump(),
-            "signals": [s.model_dump() for s in signal_data.signals],
-            "competitor_intel": [c.model_dump() for c in competitor_data.competitors],
         }
         st.download_button(
             "Download Full Intelligence Package (JSON)",
-            data=json.dumps(export_data, indent=2),
+            data=json.dumps(export, indent=2),
             file_name=f"{company}_board_brief.json",
             mime="application/json"
         )
