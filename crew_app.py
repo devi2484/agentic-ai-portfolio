@@ -119,6 +119,9 @@ def run_enhanced_search(company: str) -> str:
 # ==========================================
 # 5. JSON INVOKE
 # ==========================================
+# ==========================================
+# 5. JSON INVOKE
+# ==========================================
 def invoke_json(prompt: str) -> dict:
     messages = [
         SystemMessage(content=(
@@ -129,10 +132,13 @@ def invoke_json(prompt: str) -> dict:
     ]
     resp = llm.invoke(messages)
     text = resp.content.strip()
+    
+    # Safely strip markdown code blocks if the LLM adds them
     if text.startswith("```"):
-        text = text.split("
-```")[1]
-        if text.startswith("json"): text = text[4:]
+        text = text.split("```")[1]
+        if text.startswith("json"): 
+            text = text[4:]
+            
     text = text.strip().rstrip("```").strip()
     return json.loads(text)
 
