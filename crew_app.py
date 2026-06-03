@@ -24,7 +24,7 @@ llm_70b = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", tempe
 
 st.set_page_config(page_title="Strategic Intelligence Engine", page_icon="⚖️", layout="wide")
 st.title("⚖️ Strategic Intelligence Engine")
-st.markdown("**Evidence-Based Decision Support System** · Resilient High-Fidelity Data Lake Architecture")
+st.markdown("**Evidence-Based Decision Support System** · Automated Highest-Score Selection · Hyper-Custom Options")
 st.divider()
 
 # ==========================================
@@ -593,24 +593,29 @@ Chain every output item explicitly through this trace pathway:
 ### LAYER 1 — OBSERVATION PURITY
 Observations MUST strictly state naked historical metric changes. Prohibited from using logical or explanatory tokens: because, therefore, suggests, indicates, implies, means that, as a result, due to, caused by, which shows.
 
-### LAYER 2 — DEDUCTIVE CAUSAL ANALYSIS (NO HOLLOW PLACEHOLDERS)
-You are an advanced diagnostic agent. Do NOT output lazy 'UNKNOWN' markers for root cause metrics under any circumstances. Review the cross-company raw metrics, restructuring variables, and pricing shifts provided in the context to synthesize the definitive economic or operational driver explaining *why* the observation happened.
+### LAYER 2 — DEDUCTIVE CAUSAL ANALYSIS
+Synthesize the definitive economic or operational driver explaining *why* the observation happened based directly on text logic. No placeholders.
 
 ### LAYER 3 — STRATEGIC INFERENCE LABELS
-Downstream risk or leverage statements must end with a probability tag: | CONFIRMED, | LIKELY, or | HYPOTHESIS. Embed diagnostic terms (e.g., erosion, expansion, signaling, pressure, exposure).
+Downstream risk or leverage statements must end with a probability tag: | CONFIRMED, | LIKELY, or | HYPOTHESIS. 
 
 ### LAYER 4 — NO THEME TEMPLATES (STRICT CUSTOMIZATION RULE)
-Never copy standard generic layouts like "Portfolio-Driven Revenue Resilience". You must evaluate the concrete events of this specific data dump and construct custom corporate pattern names (e.g., 'Margin Recovery Post-Yeezy Restructuring' for Adidas; 'Pricing Pressure Overwhelming Volume Penetration Dominance' for Tesla).
+Construct custom corporate pattern names matching your findings (e.g., 'Margin Recovery Post-Yeezy Restructuring', 'Pricing Pressure Overwhelming Volume Penetration Dominance').
 
-### LAYER 5 — COMPETITOR LANDSCAPE FILL REQUIREMENT
-You have been provided exact operational performance data points regarding known industry rivals: ({entity.known_competitors}). Map this data out inside the 'competitive_landscape' array. Derive the definitive operational edge or vulnerability vector and cite the raw supporting fact string directly inside the evidence metrics field. Do NOT default to insufficient indicators if matching metrics are present in the text dataset feed.
+### GATE 6 — OPTION GENERATION & SCORING (STRICT COMPANY SPECIFICITY RULE)
+Generate exactly 3 option blocks representing completely independent strategic directions (Conservative, Balanced, Aggressive).
+CRITICAL: Every option strategy and description MUST be hyper-customized, company-specific, and explicitly mention a verified fact or competitor milestone from the input data. 
+- DO NOT generate generic templates like "Expand into new markets", "Acquire competitors", or "Improve efficiency".
+- DO GENERATE specific, actionable responses tied to the raw metrics. Examples: 
+  * "Accelerate North American share capture while Nike footwear segment volume declines 4%."
+  * "Scale Energy segment investment to offset automotive gross margin compression of 210 basis points."
+  * "Expand high-performing licensed franchises to secure a 34% volume footprint across growth geographies."
 
-### LAYER 6 — SCORE STRUCTURING
-All option scoring metrics must be entered strictly as pure Python integers between 1 and 10. String fraction terms like "8/10" are banned.
+Score each option metric strictly as an integer between 1 and 10.
 
 ### LAYER 7 — CRITICAL DECISION TEMPLATE
 The recommended_decision field MUST be populated exactly as a single continuous string matching this taxonomy layout:
-"Based on Obs: [naked fact statement], Inf: [structural meaning statement | probability], Theme: [exact custom tailored pattern theme name], Opt: [Conservative/Balanced/Aggressive]: [highly specific operational execution step targeting a numeric or regional goal]."
+"Based on Obs: [naked fact statement], Inf: [structural meaning statement | probability], Theme: [exact custom tailored pattern theme name], Opt: [Conservative/Balanced/Aggressive]: [highly specific operational execution step targeting a numeric or regional goal matching the selected option]."
 
 ---
 Target Entity Profile Focus: {entity.canonical_name} | Rivals Ring Group: {entity.known_competitors}
@@ -633,7 +638,7 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
   ],
   "strategic_themes_and_signals": [
     {{
-      "name": "Data-tailored custom localized pattern statement completely unique to this specific corporate case",
+      "name": "Custom localized pattern theme name unique to this case",
       "type": "STRATEGIC THEME",
       "traceability": ["Observation matching reference string"]
     }}
@@ -641,7 +646,7 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
   "competitive_landscape": [
     {{
       "competitor": "Name of rival operator pulled directly from target profile configuration list",
-      "advantage": "Reasoned operational or financial marketplace edge synthesized from current facts",
+      "advantage": "Reasoned operational edge synthesized from current facts",
       "advantage_evidence": "Direct copy reference of the supporting numerical fact statement detailing this advantage",
       "vulnerability": "Reasoned operational liability, margin drag, or shipment contraction synthesized from current facts",
       "vulnerability_evidence": "Direct copy reference of the supporting numerical fact statement detailing this weakness"
@@ -650,7 +655,7 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
   "evaluated_options": [
     {{
       "option_type": "Conservative",
-      "option_strategy": "Protect core asset margins and containment boundaries",
+      "option_strategy": "Hyper-custom company response built around raw data metrics",
       "description": "Mutually exclusive specific localized mitigation execution path built around raw data targets",
       "traceability_chain": "Theme [X] -> Inference [Y] -> Observation [Z]",
       "evidence_support_score": 8,
@@ -664,7 +669,7 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
     }},
     {{
       "option_type": "Balanced",
-      "option_strategy": "Optimize efficiency allocations across active distribution networks",
+      "option_strategy": "Hyper-custom company response built around raw data metrics",
       "description": "Finetuning operational capacity metrics to generate margin expansion steps",
       "traceability_chain": "...",
       "evidence_support_score": 7,
@@ -678,8 +683,8 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
     }},
     {{
       "option_type": "Aggressive",
-      "option_strategy": "Create disruptive category footprints or execute strategic baseline acquisitions",
-      "description": "Capital-heavy aggressive entry maneuver designed to restructure competitive distribution metrics",
+      "option_strategy": "Hyper-custom company response built around raw data metrics",
+      "description": "Capital-heavy expansion maneuver designed to restructure competitive distribution metrics",
       "traceability_chain": "...",
       "evidence_support_score": 6,
       "strategic_fit_score": 6,
@@ -691,8 +696,8 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
       "rejection_reason": null
     }}
   ],
-  "recommended_decision": "Based on Obs: [fact text], Inf: [implication | probability], Theme: [custom layout name], Opt: [Selected type]: [targeted data execution step]",
-  "selected_option_type": "Conservative/Balanced/Aggressive",
+  "recommended_decision": "Based on Obs: [fact text], Inf: [implication | probability], Theme: [custom layout name], Opt: [Selected type]: [targeted data execution step matching option]",
+  "selected_option_type": "Leave this blank - will be programmatically inferred by pipeline scoring parameters",
   "selection_rationale": "Comparative trade-off synthesis detailing option score rankings.",
   "contradicting_evidence": "None explicitly noted.",
   "confidence_assessment": "Confidence: HIGH — Comprehensive verified fact dataset backing."
@@ -711,6 +716,8 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
                     
         brief = DecisionIntelligenceBrief(**data)
         
+        # 1. FIXED RECOMMENDATION SELECTION BUG (HIGHEST PRIORITY)
+        # Compute composite scores programmatically for each option and rank them descending
         scored = []
         for opt in brief.evaluated_options:
             opt.composite_score = calculate_option_score(
@@ -719,6 +726,11 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
             )
             scored.append(opt)
         brief.evaluated_options = sorted(scored, key=lambda x: x.composite_score, reverse=True)
+        
+        # Infallibly set the chosen option type to the top scoring item in the list
+        if brief.evaluated_options:
+            brief.selected_option_type = brief.evaluated_options[0].option_type
+            
         return brief
     except Exception as e:
         st.error(f"Defensive System Parsing Notice: {e}")
