@@ -102,6 +102,186 @@ PREFERRED_CONTENT_KEYWORDS = [
 ]
 
 
+# ==========================================
+# METRIC PRESERVATION — observation must not swap metric identity
+# ==========================================
+# Maps source metric keywords → the canonical metric name
+METRIC_IDENTITY_MAP = {
+    "pat": "PAT (Profit After Tax)",
+    "profit after tax": "PAT (Profit After Tax)",
+    "net profit": "Net Profit",
+    "net income": "Net Income",
+    "ebitda": "EBITDA",
+    "operating profit": "Operating Profit",
+    "ebit": "EBIT",
+    "gross margin": "Gross Margin",
+    "operating margin": "Operating Margin",
+    "net margin": "Net Margin",
+    "revenue": "Revenue",
+    "sales": "Revenue",
+    "turnover": "Revenue",
+    "market share": "Market Share",
+    "capex": "Capital Expenditure",
+    "capital expenditure": "Capital Expenditure",
+    "free cash flow": "Free Cash Flow",
+    "fcf": "Free Cash Flow",
+    "eps": "EPS",
+    "earnings per share": "EPS",
+    "debt": "Debt",
+    "leverage": "Leverage",
+}
+
+# Groups of metrics that must NOT be interchanged
+METRIC_GROUPS = [
+    {"pat", "profit after tax", "net profit", "net income"},
+    {"ebitda", "operating profit", "ebit"},
+    {"gross margin", "operating margin", "net margin"},
+    {"revenue", "sales", "turnover"},
+    {"market share"},
+    {"capex", "capital expenditure"},
+    {"free cash flow", "fcf"},
+    {"eps", "earnings per share"},
+]
+
+
+def detect_metric_in_text(text: str) -> Optional[str]:
+    """Returns the first recognised metric keyword found in text (lowercase)."""
+    tl = text.lower()
+    # Longer phrases first to avoid partial matches
+    for key in sorted(METRIC_IDENTITY_MAP.keys(), key=len, reverse=True):
+        if key in tl:
+            return key
+    return None
+
+
+def check_metric_preservation(evidence: str, observation: str) -> tuple[bool, str]:
+    """
+    Returns (violated, reason).
+    Violated if the observation references a DIFFERENT metric group than the evidence.
+    """
+    if not evidence or not observation:
+        return False, ""
+    ev_metric  = detect_metric_in_text(evidence)
+    obs_metric = detect_metric_in_text(observation)
+    if not ev_metric or not obs_metric:
+        return False, ""
+    if ev_metric == obs_metric:
+        return False, ""
+    # Check if they belong to different groups
+    ev_group  = next((g for g in METRIC_GROUPS if ev_metric  in g), None)
+    obs_group = next((g for g in METRIC_GROUPS if obs_metric in g), None)
+    if ev_group and obs_group and ev_group != obs_group:
+        return True, (
+            f"Metric substitution: evidence references '{METRIC_IDENTITY_MAP.get(ev_metric, ev_metric)}' "
+            f"but observation references '{METRIC_IDENTITY_MAP.get(obs_metric, obs_metric)}'. "
+            "Observations must preserve the exact metric from evidence."
+        )
+    return False, ""
+
+
+# ==========================================
+# COMPANY RELEVANCE VALIDATOR
+# Reject facts that describe industry trends without explicit company linkage
+# ==========================================
+INDUSTRY_TREND_MARKERS = [
+    r'\b(the industry|the sector|the market|industry as a whole|sector wide|across the industry)\b',
+    r'\b(globally|worldwide|industry players|market participants|analysts expect|experts predict)\b',
+    r'\b(the overall market|broader market|industry average|sector average|peer group)\b',
+    r'\b(it is expected|it is projected|forecasters|research firms predict)\b',
+]
+
+COMPANY_LINKAGE_MARKERS = [
+    # Will be populated dynamically using entity canonical name at runtime
+]
+
+
+def check_company_relevance(fact_text: str, canonical_name: str) -> tuple[bool, str]:
+    """
+    Returns (irrelevant, reason).
+    A fact is irrelevant if it describes an industry/market trend without
+    explicitly naming or linking to the target company.
+    """
+    text_lower = fact_text.lower()
+    name_lower = canonical_name.lower()
+
+    # Remove common suffixes for matching
+    name_core = name_lower
+    for suffix in [" limited", " ltd", " inc", " corp", " group", " pvt", " plc"]:
+        name_core = name_core.replace(suffix, "")
+    name_core = name_core.strip()
+
+    # Check if the fact mentions the company at all
+    company_mentioned = name_core in text_lower or name_lower in text_lower
+
+    # Check for industry-trend language
+    has_trend_language = any(
+        re.search(pattern, text_lower) for pattern in INDUSTRY_TREND_MARKERS
+    )
+
+    if has_trend_language and not company_mentioned:
+        return True, (
+            f"Fact describes an industry/market trend without explicitly linking to "
+            f"'{canonical_name}'. Only company-specific facts are admitted."
+        )
+    return False, ""
+
+
+# ==========================================
+# SEMANTIC DEDUPLICATION
+# Reject facts that express the same idea with different wording
+# ==========================================
+def semantic_overlap_score(text_a: str, text_b: str) -> float:
+    """
+    Returns word-overlap ratio between two texts (Jaccard similarity on content words).
+    """
+    stopwords = {
+        "the", "a", "an", "is", "are", "was", "were", "has", "have", "had",
+        "in", "of", "to", "for", "and", "or", "but", "its", "their", "this",
+        "that", "with", "by", "at", "on", "from", "it", "as", "be", "will",
+        "been", "also", "which", "who", "when", "where", "during", "after",
+        "about", "into", "than", "more", "over", "not", "all", "new",
+    }
+    def content_words(t: str) -> set:
+        return {w.strip(".,;:()[]\"'") for w in t.lower().split()
+                if w.strip(".,;:()[]\"'") and w.strip(".,;:()[]\"'") not in stopwords}
+
+    wa = content_words(text_a)
+    wb = content_words(text_b)
+    if not wa or not wb:
+        return 0.0
+    intersection = wa & wb
+    union = wa | wb
+    return len(intersection) / len(union)
+
+
+def deduplicate_facts(facts: List) -> tuple[List, List[dict]]:
+    """
+    Removes semantically duplicate facts.
+    Returns (deduplicated_facts, duplicate_log).
+    Two facts are duplicates if their Jaccard similarity > 0.55.
+    """
+    kept: List = []
+    dup_log: List[dict] = []
+
+    for candidate in facts:
+        duplicate_of = None
+        for existing in kept:
+            score = semantic_overlap_score(candidate.fact, existing.fact)
+            if score > 0.55:
+                duplicate_of = existing.fact
+                break
+        if duplicate_of:
+            dup_log.append({
+                "rejected_fact": candidate.fact[:120],
+                "duplicate_of": duplicate_of[:120],
+                "reason": f"Semantic overlap > 55% — same idea expressed differently."
+            })
+        else:
+            kept.append(candidate)
+
+    return kept, dup_log
+
+
 def is_non_decision_content(fact_text: str) -> tuple[bool, str]:
     """Returns (True, reason) if fact is mission/marketing/non-decision content."""
     import re as _re
@@ -357,23 +537,142 @@ def get_evidence_sufficiency(verified_facts: list, report_confidence: int) -> tu
     return True, "Evidence sufficient for reliable conclusions."
 
 
-# NEW: Requirement 8 — numeric option scoring before decision selection
-def calculate_option_score(evidence_support: int, risk: int,
-                            complexity: int, strategic_fit: int) -> int:
+# Option scoring — 6-dimension formula (new prompt spec)
+# Score = (0.25 × Evidence Support) + (0.20 × Strategic Fit) + (0.25 × Opportunity)
+#       + (0.15 × Urgency) - (0.10 × Risk) - (0.05 × Complexity)
+# All inputs 1-10; output scaled to 0-100.
+def calculate_option_score(evidence_support: int, strategic_fit: int,
+                            opportunity: int, urgency: int,
+                            risk: int, complexity: int) -> int:
     """
-    Composite option score (0-100).
-    risk is inverted (lower risk = higher score).
-    complexity is inverted (lower complexity = higher score).
+    6-dimension composite option score (0-100).
+    Risk and Complexity are cost terms (subtracted).
+    Aggressive options can win when opportunity and urgency are high.
     """
-    risk_inverted       = 10 - risk
-    complexity_inverted = 10 - complexity
     raw = (
-        evidence_support * 0.35 +
-        risk_inverted    * 0.25 +
-        complexity_inverted * 0.15 +
-        strategic_fit    * 0.25
+        evidence_support * 0.25 +
+        strategic_fit    * 0.20 +
+        opportunity      * 0.25 +
+        urgency          * 0.15 -
+        risk             * 0.10 -
+        complexity       * 0.05
     )
-    return int((raw / 10) * 100)
+    # raw range: min ≈ (1*0.85 - 10*0.15) = -0.65  →  max ≈ (10*0.85 - 1*0.15) = 8.35
+    # Normalise to 0-100
+    raw_min = 1 * 0.85 - 10 * 0.15   # ≈ 0.35 (1s for positives, 10s for costs)
+    raw_max = 10 * 0.85 - 1 * 0.15   # ≈ 8.35
+    normalised = (raw - raw_min) / (raw_max - raw_min)
+    return max(0, min(100, int(normalised * 100)))
+
+
+# ==========================================
+# SPECIFICITY TEST — "50 unrelated companies" rule
+# ==========================================
+UNIVERSAL_STRATEGY_PATTERNS = [
+    r'\b(improve (customer|operational|product|service) (experience|quality|efficiency))\b',
+    r'\b(expand (market|global|international|geographic) (presence|reach|footprint))\b',
+    r'\b(invest in (technology|talent|innovation|digital|infrastructure))\b',
+    r'\b(build (brand|awareness|loyalty|recognition))\b',
+    r'\b(reduce (costs?|expenses?|overhead))\b',
+    r'\b(increase (revenue|sales|market share|profitability))\b',
+    r'\b(develop new (products?|services?|offerings?))\b',
+    r'\b(improve (operations?|processes?|systems?))\b',
+    r'\b(strengthen (governance|compliance|risk management))\b',
+    r'\b(acquire (companies|businesses|startups|competitors))\b',
+]
+
+
+def check_recommendation_specificity(decision: str) -> tuple[bool, str]:
+    """
+    Returns (failed, reason) if recommendation could apply to 50 unrelated companies.
+    A recommendation passes if it mentions company-specific facts, numbers, or named entities.
+    """
+    decision_lower = decision.lower()
+    pattern_hits = [
+        p for p in UNIVERSAL_STRATEGY_PATTERNS
+        if re.search(p, decision_lower)
+    ]
+    if not pattern_hits:
+        return False, ""
+
+    # Check if it is rescued by company-specific anchors (numbers, named products, etc.)
+    has_specifics = bool(re.search(
+        r'\d|%|₹|\$|€|crore|billion|million|lakh|q[1-4]|fy\d|fiscal|\b[A-Z][a-z]{3,}\b',
+        decision
+    ))
+    if has_specifics:
+        return False, ""  # Anchored to specific data — passes
+
+    return True, (
+        f"Specificity test FAILED — recommendation contains {len(pattern_hits)} universal strategy "
+        f"pattern(s): {', '.join(p[:40] for p in pattern_hits[:2])}. "
+        "This could apply to 50 unrelated companies. Rewrite with company-specific evidence anchors."
+    )
+
+
+# ==========================================
+# OPTION DIFFERENTIATION CHECK
+# Conservative=Protect, Balanced=Optimize, Aggressive=Create new advantage
+# ==========================================
+OPTION_STRATEGY_SIGNATURES = {
+    "Conservative": {
+        "required": ["protect", "defend", "maintain", "retain", "secure", "preserve",
+                     "hold", "consolidate", "safeguard", "sustain"],
+        "forbidden": ["new market", "new segment", "launch", "acquire", "disrupt",
+                      "transform", "new advantage", "aggressive"],
+    },
+    "Balanced": {
+        "required": ["optimis", "optimiz", "improve", "enhance", "efficienc",
+                     "strengthen existing", "build on", "leverage existing",
+                     "deepen", "expand within"],
+        "forbidden": ["protect existing", "defend position", "disrupt", "acquire",
+                      "new market", "new category"],
+    },
+    "Aggressive": {
+        "required": ["new", "create", "disrupt", "enter", "acquire", "launch",
+                     "advantage", "transform", "pioneer", "first-mover"],
+        "forbidden": ["protect", "maintain current", "sustain existing", "hold"],
+    },
+}
+
+
+def check_option_differentiation(options) -> list[str]:
+    """
+    Returns list of violations where options are not materially different.
+    Also checks that each option matches its intended strategic posture.
+    """
+    issues = []
+    if not options or len(options) < 3:
+        return issues
+
+    descriptions = {opt.option_type: (opt.description or "").lower() for opt in options}
+
+    # Cross-option semantic overlap — pairwise
+    option_types = list(descriptions.keys())
+    for i in range(len(option_types)):
+        for j in range(i + 1, len(option_types)):
+            ta, tb = option_types[i], option_types[j]
+            overlap = semantic_overlap_score(descriptions[ta], descriptions[tb])
+            if overlap > 0.60:
+                issues.append(
+                    f"Option differentiation FAILED: '{ta}' and '{tb}' share {int(overlap*100)}% "
+                    "semantic overlap — they appear to be the same strategy at different intensity levels. "
+                    "Conservative must protect, Balanced must optimize, Aggressive must create new advantage."
+                )
+
+    # Strategic posture check per option
+    for opt_type, sigs in OPTION_STRATEGY_SIGNATURES.items():
+        desc = descriptions.get(opt_type, "")
+        if not desc:
+            continue
+        has_required = any(kw in desc for kw in sigs["required"])
+        if not has_required:
+            issues.append(
+                f"Option '{opt_type}': Description does not reflect the required strategic posture. "
+                f"Expected language reflecting: {', '.join(sigs['required'][:4])}."
+            )
+
+    return issues
 
 
 # NEW: Requirement 9 — traceability chain validator (+ Req 3, 5, 6, 11, 12)
@@ -403,6 +702,13 @@ def validate_traceability_chain(brief, verified_facts: list = None) -> list[str]
         has_reasoning, reasoning_msg = contains_reasoning(log.observation or "")
         if has_reasoning:
             violations.append(f"{tag}: Observation contains reasoning language — {reasoning_msg}")
+
+        # METRIC PRESERVATION — observation must not swap metric identity
+        metric_violated, metric_msg = check_metric_preservation(
+            log.evidence or "", log.observation or ""
+        )
+        if metric_violated:
+            violations.append(f"{tag}: {metric_msg}")
 
         if log.inference:
             # Req 4 — inference must have classification tag
@@ -487,8 +793,17 @@ def validate_traceability_chain(brief, verified_facts: list = None) -> list[str]
                 f"Decision: Contains {generic_count} generic phrase(s): {', '.join(generic_found)}. "
                 "Recommendation must be specific to this entity and evidence."
             )
+
+        # SPECIFICITY TEST — reject if recommendation could apply to 50 unrelated companies
+        specificity_fail, specificity_reason = check_recommendation_specificity(decision)
+        if specificity_fail:
+            violations.append(f"Decision: {specificity_reason}")
     else:
         violations.append("Decision: recommended_decision is empty — no recommendation was generated.")
+
+    # ── Option differentiation check ────────────────────────────────────
+    option_diff_issues = check_option_differentiation(brief.evaluated_options)
+    violations.extend(option_diff_issues)
 
     return violations
 
@@ -638,20 +953,31 @@ class EvaluatedOption(BaseModel):
         default=None,
         description="Must be exactly: Conservative, Balanced, or Aggressive"
     )
+    option_strategy: Optional[str] = Field(
+        default=None,
+        description=(
+            "Conservative=Protect existing position, "
+            "Balanced=Optimize existing position, "
+            "Aggressive=Create new strategic advantage. "
+            "Must NOT be same strategy at different intensity."
+        )
+    )
     description: Optional[str] = None
     traceability_chain: Union[str, List[str], None] = Field(
         default=None,
         description="Theme [X] -> Inference [Y] -> Observation [Z] -> Evidence [W]"
     )
-    # Numeric scores 1-10
+    # 6-dimension scoring (1-10)
     evidence_support_score: int = Field(default=5, description="1-10. How strongly does evidence support this option?")
-    risk_score: int            = Field(default=5, description="1-10. How high is the risk? Higher = riskier.")
-    complexity_score: int      = Field(default=5, description="1-10. How complex to execute? Higher = more complex.")
-    strategic_fit_score: int   = Field(default=5, description="1-10. How well does it fit the strategic context?")
-    composite_score: int       = Field(default=0, description="Computed: weighted composite of the 4 scores.")
+    strategic_fit_score: int    = Field(default=5, description="1-10. How well does it fit the strategic context?")
+    opportunity_score: int      = Field(default=5, description="1-10. How large is the opportunity this option captures?")
+    urgency_score: int          = Field(default=5, description="1-10. How time-sensitive is execution? Higher = more urgent.")
+    risk_score: int             = Field(default=5, description="1-10. How high is the risk? Higher = riskier.")
+    complexity_score: int       = Field(default=5, description="1-10. How complex to execute? Higher = more complex.")
+    composite_score: int        = Field(default=0, description="Computed: weighted composite of the 6 scores.")
     generic_test_passed: Optional[str] = Field(
         default=None,
-        description="Yes — uniquely applies to this situation with specific evidence. No — could apply to any company."
+        description="Yes — uniquely applies to this situation. No — could apply to 50 unrelated companies."
     )
     rejection_reason: Optional[str] = Field(
         default=None,
@@ -768,10 +1094,16 @@ Raw Context:
 
 
 # NEW: Requirement 1 & 2 — fact quality scoring + rejection of low-value facts
-def run_hard_gate_validation(facts: List[IntelligenceFact]) -> tuple[List[ValidatedFact], List[dict]]:
+def run_hard_gate_validation(
+    facts: List[IntelligenceFact],
+    canonical_name: str = ""
+) -> tuple[List[ValidatedFact], List[dict]]:
     """
     Returns (verified_facts, rejection_log).
     rejection_log contains every rejected fact with its rejection reason.
+    Applies: non-decision content, company relevance, board/impact scores,
+             source trust, confidence, recency, fact quality score.
+    Semantic deduplication is applied AFTER this gate (separate call).
     """
     verified  = []
     rejected  = []
@@ -783,6 +1115,12 @@ def run_hard_gate_validation(facts: List[IntelligenceFact]) -> tuple[List[Valida
         is_non_decision, non_decision_reason = is_non_decision_content(f.fact)
         if is_non_decision:
             reasons.append(f"Non-decision-grade content — {non_decision_reason}")
+
+        # NEW Gate 0b: reject facts not about the company (company relevance)
+        if canonical_name:
+            is_irrelevant, relevance_reason = check_company_relevance(f.fact, canonical_name)
+            if is_irrelevant:
+                reasons.append(f"Company relevance — {relevance_reason}")
 
         # Gate 1: board relevance + strategic impact
         if f.board_relevance < 8 or f.strategic_impact < 8:
@@ -858,14 +1196,16 @@ Validated Facts:
 
 # NEW: Requirement 8 — score options numerically before selecting
 def score_options_deterministically(options: List[EvaluatedOption]) -> List[EvaluatedOption]:
-    """Compute composite_score for every option and sort descending."""
+    """Compute composite_score (6-dim formula) for every option and sort descending."""
     scored = []
     for opt in options:
         score = calculate_option_score(
             opt.evidence_support_score,
+            opt.strategic_fit_score,
+            opt.opportunity_score,
+            opt.urgency_score,
             opt.risk_score,
             opt.complexity_score,
-            opt.strategic_fit_score
         )
         opt.composite_score = score
         scored.append(opt)
@@ -904,6 +1244,12 @@ Observations MUST only restate what the evidence shows. They MUST NOT contain:
 - Any forward-looking language
 Violation = observation is rejected. Root cause handles the WHY.
 
+METRIC PRESERVATION (MANDATORY):
+Never substitute one metric for another in an observation.
+If evidence says PAT grew → observation says PAT grew. NOT "revenue grew" or "profits improved".
+If evidence says market share declined → observation says market share declined. NOT "revenue declined".
+The exact metric identity from evidence MUST be preserved in the observation.
+
 ## GATE 2 — ROOT CAUSE RULE
 Root cause must explain WHY the observation occurred. If evidence does not support a cause, write UNKNOWN.
 Never copy the observation into the root cause field.
@@ -933,21 +1279,34 @@ Every competitor advantage and vulnerability claim MUST include a specific evide
 If competitive evidence is unavailable, write exactly: INSUFFICIENT_COMPETITIVE_EVIDENCE
 Do NOT invent competitors. Do NOT use prior knowledge. Do NOT leave evidence fields null if a claim is made.
 
-## GATE 6 — OPTION SCORING (NUMERIC, 1-10)
+## GATE 6 — OPTION GENERATION & SCORING (6 DIMENSIONS, 1-10 EACH)
 Generate exactly 3 options: Conservative, Balanced, Aggressive.
+CRITICAL — MATERIAL DIFFERENTIATION REQUIRED:
+- Conservative = Protect existing position (defend moats, lock in existing revenue, reduce exposure)
+- Balanced     = Optimize existing position (improve efficiency, deepen existing advantages, reduce cost)
+- Aggressive   = Create new strategic advantage (enter new markets, acquire, disrupt, build new capability)
+These must be MATERIALLY different strategies — NOT the same strategy at different intensity levels.
+
 Score each dimension 1-10:
 - evidence_support_score: How strongly does verified evidence support this option?
+- strategic_fit_score: How well does it fit the entity's strategic context?
+- opportunity_score: How large is the opportunity this option captures?
+- urgency_score: How time-sensitive is execution? (higher = more urgent)
 - risk_score: How high is execution risk? (higher = riskier)
 - complexity_score: How complex is execution? (higher = more complex)
-- strategic_fit_score: How well does it fit the entity's strategic context?
-Do NOT select a recommendation until after scoring all three options.
-Only the highest composite-scoring option that passes the generic test becomes the recommendation.
 
-## GATE 7 — GENERIC RECOMMENDATION REJECTION
+Scoring formula: (0.25 × Evidence) + (0.20 × Strategic Fit) + (0.25 × Opportunity) + (0.15 × Urgency) - (0.10 × Risk) - (0.05 × Complexity)
+Aggressive options CAN win when opportunity and urgency are high — the formula allows this.
+Do NOT select a recommendation until all three options are scored. Pick the highest composite scorer that passes the generic test.
+
+## GATE 7 — GENERIC RECOMMENDATION REJECTION & SPECIFICITY TEST
 The recommendation MUST be rejected and rewritten if it contains ANY of:
 leverage synergies, best practices, holistic approach, consider expanding, may wish to,
 explore opportunities, strengthen positioning, invest in capabilities, could potentially, it is recommended that
-The recommendation must be specific to THIS entity, THIS evidence, THIS moment.
+
+SPECIFICITY TEST (MANDATORY): Ask yourself — could this recommendation apply to 50 unrelated companies?
+If YES → REJECT. Rewrite anchoring to specific evidence: a named metric, a percentage, a named product/market, a specific period.
+A valid recommendation must contain at least one company-specific anchor (number, %, named entity, specific date/period).
 
 ## GATE 8 — DECISION TRACEABILITY (MANDATORY FORMAT)
 The recommended_decision field MUST use this exact format:
@@ -1014,36 +1373,45 @@ OUTPUT STRICT JSON:
   "evaluated_options": [
     {{
       "option_type": "Conservative",
-      "description": "specific action unique to this entity and situation",
+      "option_strategy": "Protect existing position — [specific what to protect]",
+      "description": "specific action unique to this entity and situation — anchored to evidence",
       "traceability_chain": "Theme [X] -> Inference [Y] -> Observation [Z]",
       "evidence_support_score": 7,
+      "strategic_fit_score": 8,
+      "opportunity_score": 4,
+      "urgency_score": 5,
       "risk_score": 3,
       "complexity_score": 4,
-      "strategic_fit_score": 8,
       "composite_score": 0,
       "generic_test_passed": "Yes",
       "rejection_reason": null
     }},
     {{
       "option_type": "Balanced",
+      "option_strategy": "Optimize existing position — [specific what to optimize]",
       "description": "...",
       "traceability_chain": "...",
       "evidence_support_score": 6,
+      "strategic_fit_score": 7,
+      "opportunity_score": 6,
+      "urgency_score": 6,
       "risk_score": 5,
       "complexity_score": 5,
-      "strategic_fit_score": 7,
       "composite_score": 0,
       "generic_test_passed": "Yes",
       "rejection_reason": null
     }},
     {{
       "option_type": "Aggressive",
+      "option_strategy": "Create new strategic advantage — [specific new advantage to create]",
       "description": "...",
       "traceability_chain": "...",
       "evidence_support_score": 5,
+      "strategic_fit_score": 6,
+      "opportunity_score": 9,
+      "urgency_score": 8,
       "risk_score": 8,
       "complexity_score": 7,
-      "strategic_fit_score": 6,
       "composite_score": 0,
       "generic_test_passed": "Yes",
       "rejection_reason": null
@@ -1098,7 +1466,11 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
             raw_facts = run_researcher(company, entity, raw_context[:15000])
 
             st.write("🔒 Running quality gate — scoring and rejecting low-value facts...")
-            verified_facts, rejected_facts = run_hard_gate_validation(raw_facts)
+            verified_facts, rejected_facts = run_hard_gate_validation(raw_facts, entity.canonical_name)
+
+            # Semantic deduplication — remove facts expressing the same idea
+            st.write("🔁 Running semantic deduplication...")
+            verified_facts, dup_log = deduplicate_facts(verified_facts)
 
             report_confidence_prelim = calculate_report_confidence(verified_facts, len(raw_facts))
             evidence_sufficient, sufficiency_message = get_evidence_sufficiency(verified_facts, report_confidence_prelim)
@@ -1138,7 +1510,7 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
             st.success(f"✅ DATA SUFFICIENCY GATE PASSED — {final_brief.reason or 'Evidence meets threshold.'}")
 
         # ── NEW: Fact Quality Report ─────────────────────────
-        with st.expander(f"📊 Fact Quality Gate Report — {len(verified_facts)} passed / {len(rejected_facts)} rejected", expanded=False):
+        with st.expander(f"📊 Fact Quality Gate Report — {len(verified_facts)} passed / {len(rejected_facts)} rejected / {len(dup_log)} deduplicated", expanded=False):
             col_pass, col_fail = st.columns(2)
 
             with col_pass:
@@ -1165,6 +1537,14 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
                         for r in rf["reasons"]:
                             st.error(f"• {r}")
 
+            if dup_log:
+                st.markdown("**🔁 Semantic Duplicates Removed**")
+                for dl in dup_log:
+                    with st.container(border=True):
+                        st.warning(f"**Removed:** `{dl['rejected_fact']}`")
+                        st.caption(f"Duplicate of: `{dl['duplicate_of']}`")
+                        st.caption(dl["reason"])
+
         # ── NEW: Traceability Validation Report ──────────────
         violations = validate_traceability_chain(final_brief, verified_facts)
         if violations:
@@ -1186,6 +1566,11 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
                     st.error(f"❌ **Observation (PURITY FAILED):** {log.observation or 'N/A'}\n\n_{reasoning_msg}_")
                 else:
                     st.info(f"✅ **Observation (pure):** {log.observation or 'N/A'}")
+
+                # Metric preservation check
+                metric_violated, metric_msg = check_metric_preservation(log.evidence or "", log.observation or "")
+                if metric_violated:
+                    st.error(f"❌ **Metric Substitution:** {metric_msg}")
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -1283,15 +1668,21 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
                 header_col, score_col = st.columns([3, 1])
                 with header_col:
                     st.markdown(f"**{rank_label} — :{color}[{opt_type}]**")
+                    if opt.option_strategy:
+                        st.caption(f"🎯 Strategy posture: _{opt.option_strategy}_")
                     st.markdown(f"{opt.description or 'N/A'}")
                 with score_col:
                     st.metric("Composite Score", f"{opt.composite_score}/100")
 
-                sc1, sc2, sc3, sc4 = st.columns(4)
+                # 6-dimension scores
+                sc1, sc2, sc3 = st.columns(3)
+                sc4, sc5, sc6 = st.columns(3)
                 sc1.metric("Evidence Support", f"{opt.evidence_support_score}/10")
-                sc2.metric("Risk (↑=worse)", f"{opt.risk_score}/10")
-                sc3.metric("Complexity (↑=harder)", f"{opt.complexity_score}/10")
-                sc4.metric("Strategic Fit", f"{opt.strategic_fit_score}/10")
+                sc2.metric("Strategic Fit", f"{opt.strategic_fit_score}/10")
+                sc3.metric("Opportunity ↑", f"{opt.opportunity_score}/10")
+                sc4.metric("Urgency ↑", f"{opt.urgency_score}/10")
+                sc5.metric("Risk (↑=worse)", f"{opt.risk_score}/10")
+                sc6.metric("Complexity (↑=harder)", f"{opt.complexity_score}/10")
 
                 chain = opt.traceability_chain
                 if isinstance(chain, list):
@@ -1299,9 +1690,9 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
                 st.info(f"**Traceability:** {chain or 'N/A'}")
 
                 if opt.generic_test_passed == "Yes":
-                    st.success("✅ Passed Generic Test — specific to this entity and situation.")
+                    st.success("✅ Passed Specificity Test — specific to this entity and situation.")
                 elif opt.generic_test_passed == "No":
-                    st.error(f"❌ Failed Generic Test — {opt.rejection_reason or 'Too generic.'}")
+                    st.error(f"❌ Failed Specificity Test — {opt.rejection_reason or 'Too generic.'}")
 
         # 5. FINAL DECISION
         st.markdown("### 5. Final Decision & Integrity Check")
@@ -1355,6 +1746,7 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
             "fact_quality_report": {
                 "verified_facts": [vf.model_dump() for vf in verified_facts],
                 "rejected_facts": rejected_facts,
+                "deduplicated_facts": dup_log,
                 "report_confidence": report_confidence_prelim,
             },
             "reasoning_brief": final_brief.model_dump(),
