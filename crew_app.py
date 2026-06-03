@@ -25,9 +25,16 @@ st.divider()
 # ==========================================
 # 2. TRUST & SCORING (SOURCES)
 # ==========================================
-HIGH_TRUST_DOMAINS = ["reuters.com","bloomberg.com","cnbc.com","wsj.com","ft.com","sec.gov"]
-MEDIUM_TRUST_DOMAINS = ["techcrunch.com","forbes.com","fortune.com"]
-LOW_TRUST_DOMAINS = ["linkedin.com","reddit.com","quora.com","wikipedia.org","twitter.com"]
+HIGH_TRUST_DOMAINS = [
+    "reuters.com","bloomberg.com","cnbc.com","wsj.com","ft.com","sec.gov",
+    "marketwatch.com","barrons.com","morningstar.com","spglobal.com",
+    "finance.yahoo.com","moodys.com","fitchratings.com","nytimes.com",
+    "moneycontrol.com","economictimes.indiatimes.com","livemint.com",
+    "businessstandard.com","thehindubusinessline.com","financialexpress.com",
+    "bseindia.com","nseindia.com","sebi.gov.in","rbi.org.in",
+]
+MEDIUM_TRUST_DOMAINS = ["techcrunch.com","forbes.com","fortune.com", "seekingalpha.com"]
+LOW_TRUST_DOMAINS = ["linkedin.com","reddit.com","quora.com","wikipedia.org","twitter.com","x.com"]
 TRUST_SCORE_MAP = {"HIGH TRUST": 10, "MEDIUM TRUST": 6, "LOW TRUST": 2}
 
 MIN_VERIFIED_FACTS = 2
@@ -74,15 +81,20 @@ def calculate_strict_confidence(brief, total_facts: int) -> str:
         return "LOW (Failed threshold tests for higher confidence)"
 
 # ==========================================
-# 4. SEARCH & JSON INVOKE (BUG FIXED)
+# 4. SEARCH & JSON INVOKE (OPTIMIZED & BUG FIXED)
 # ==========================================
 def run_enhanced_search(company: str) -> str:
-    queries = [f"{company} revenue profit margin earnings 2025", f"{company} market share competitor comparison 2025"]
+    queries = [
+        f"{company} recent financial results revenue profit margin earnings",
+        f"{company} market share competitive advantage vulnerabilities",
+        f"{company} strategic pivot capital allocation recent acquisitions"
+    ]
     results = []
     try:
         with DDGS() as ddgs:
             for q in queries:
-                for r in ddgs.text(q, max_results=2, timelimit="y"):
+                time.sleep(1) # Prevent silent rate-limiting from the search engine
+                for r in ddgs.text(q, max_results=3, timelimit="y"):
                     url = r.get("href", "")
                     results.append(f"SOURCE: {url}\nTRUST: {evaluate_trust(url)}\nCONTENT: {r.get('title','')} — {r.get('body','')}\n{'-'*40}")
     except Exception as e:
