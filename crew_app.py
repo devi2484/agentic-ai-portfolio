@@ -325,7 +325,6 @@ def validate_traceability_chain(brief, verified_facts: list = None) -> list[str]
 # 4. EXECUTOR CORE & ROBUST FALLBACK DATA LAKE
 # ==========================================
 
-# Fail-Safe Context Dataset to completely fuel the 70B layer if live cloud web scraping drops packets or hits rate blocks
 MOCK_KNOWLEDGE_BASE = {
     "adidas": """
     Adidas AG Q4 2025 EPS recorded at $0.42. Revenue for the full period reached 21.4 Billion Euros, representing structured recovery. 
@@ -369,7 +368,6 @@ def _ddgs_search(queries: list, max_per_query: int = 3) -> list[dict]:
     return results
 
 def run_primary_source_search(company: str) -> str:
-    # Stripped double-quotes to prevent DuckDuckGo phrase mismatch drops
     queries = [
         f'{company} investor relations earnings call transcript metrics 2025 2026',
         f'{company} quarterly financial results annual report disclosure file pdf'
@@ -390,6 +388,16 @@ def run_competitor_deep_search(company: str, competitors_str: str) -> str:
             f'{company} {r} comparative operational performance profit margins site reuters.com'
         ])
     return "\n".join([f"URL: {res.get('href')} DATA: {res.get('title')} - {res.get('body')}" for res in _ddgs_search(queries, 2)])
+
+def run_enhanced_search(company: str) -> str:
+    p_ctx = run_primary_source_search(company)
+    g_ctx = run_general_search(company)
+    combined = ""
+    if p_ctx:
+        combined += "===== SECURED STRATEGIC CORPORATE DATA DISCLOSURES =====\n" + p_ctx + "\n\n"
+    if g_ctx:
+        combined += "===== RELEVANT FINANCIAL PRESS & BENCHMARKS =====\n" + g_ctx
+    return combined
 
 # ==========================================
 # 5. DATA STRUCTURE SCHEMAS (PYDANTIC)
@@ -479,11 +487,12 @@ class DecisionIntelligenceBrief(BaseModel):
     confidence_assessment: Optional[str] = None
 
 # ==========================================
-# 6. PIPELINE ORCHESTRATION AGENTS (ALL 70B ENHANCED)
+# 6. PIPELINE ORCHESTRATION AGENTS
 # ==========================================
 
+FACT_CATEGORIES = ["Profitability", "Growth", "Competitive Threat", "Competitive Advantage", "Capital Allocation", "Strategic Shift"]
+
 def run_entity_resolution(company: str, raw_context: str) -> EntityProfile:
-    # Explicit hard-coded defaults injected into mapping logic if web search blocks activate
     comp_lower = company.lower()
     default_rivals = "Nike, Puma, VF Corporation" if "adi" in comp_lower else "BYD, Ford, General Motors" if "tes" in comp_lower else "Unknown Rivals"
     default_ind = "Athletic Apparel and Footwear" if "adi" in comp_lower else "Automotive and Clean Energy" if "tes" in comp_lower else "Global Markets"
@@ -691,7 +700,6 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
     try:
         data = invoke_json(prompt, model_type="70b")
         
-        # Defensive Data Transformation Coercion Layer
         if "evaluated_options" in data and isinstance(data["evaluated_options"], list):
             for opt in data["evaluated_options"]:
                 for field in ["evidence_support_score", "strategic_fit_score", "opportunity_score", "urgency_score", "risk_score", "complexity_score"]:
@@ -703,7 +711,6 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
                     
         brief = DecisionIntelligenceBrief(**data)
         
-        # Process mathematical composite matrix calculations deterministically 
         scored = []
         for opt in brief.evaluated_options:
             opt.composite_score = calculate_option_score(
@@ -738,10 +745,8 @@ if st.button("Run System Verification Pipeline", type="primary"):
             st.write(f"🎯 Stage 3: Unlocking targeted competitor cross-company benchmark queries for: {entity.known_competitors}...")
             competitor_context = run_competitor_deep_search(entity.canonical_name, entity.known_competitors)
             
-            # Combine raw web data lake streams
             full_data_lake = raw_context + "\n\n===== SKIPPED CROSS-RIVAL REPORT BENCHMARKS =====\n" + competitor_context
             
-            # Resilient Data Lake Gate: Engage knowledge base backup layer if live engine results are thin or throttled
             clean_token = company.lower()
             if len(full_data_lake.strip()) < 1500 or "adidas" in clean_token or "tesla" in clean_token:
                 for k, backup_text in MOCK_KNOWLEDGE_BASE.items():
