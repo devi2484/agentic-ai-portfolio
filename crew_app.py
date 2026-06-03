@@ -56,7 +56,6 @@ def evaluate_trust(url: str) -> str:
 # 3. DETERMINISTIC SCORING
 # ==========================================
 def calculate_confidence(trust_label: str, board_relevance: int, strategic_impact: int) -> int:
-    # Bulletproof conversion to upper case to match the lookup keys cleanly
     trust_score = TRUST_SCORE_MAP.get(trust_label.strip().upper(), 5)
     raw = (trust_score * 0.4) + (board_relevance * 0.3) + (strategic_impact * 0.3)
     return int((raw / 10) * 100)
@@ -119,9 +118,6 @@ def run_enhanced_search(company: str) -> str:
 # ==========================================
 # 5. JSON INVOKE
 # ==========================================
-# ==========================================
-# 5. JSON INVOKE
-# ==========================================
 def invoke_json(prompt: str) -> dict:
     messages = [
         SystemMessage(content=(
@@ -135,7 +131,8 @@ def invoke_json(prompt: str) -> dict:
     
     # Safely strip markdown code blocks if the LLM adds them
     if text.startswith("```"):
-        text = text.split("```")[1]
+        text = text.split("
+```")[1]
         if text.startswith("json"): 
             text = text[4:]
             
@@ -143,7 +140,7 @@ def invoke_json(prompt: str) -> dict:
     return json.loads(text)
 
 # ==========================================
-# 6. PYDANTIC MODELS (BULLETPROOF STRATEGIC CHAINS)
+# 6. PYDANTIC MODELS (UPGRADED INFERENCE & OPTIONS)
 # ==========================================
 class EntityProfile(BaseModel):
     canonical_name: str
@@ -180,17 +177,18 @@ class StrategicSignal(BaseModel):
     urgency: str
     implication: str
 
-# --- REASONING SUB-MODELS (FULLY OPTIONALIZED) ---
+# --- EXPERT REASONING MODELS ---
 
 class EvidenceLog(BaseModel):
     evidence: Optional[str] = None
     observation: Optional[str] = None
-    root_cause_and_class: Optional[str] = Field(default=None, description="Format: [Cause] | [CONFIRMED/LIKELY/HYPOTHESIS/UNKNOWN]")
+    root_cause: Optional[str] = Field(default=None, description="Must explain observation or be UNKNOWN. Never restates observation.")
+    inference: Optional[str] = Field(default=None, description="Format: [Inference] | [CONFIRMED/LIKELY/HYPOTHESIS]")
 
 class ThemeSignal(BaseModel):
     name: Optional[str] = None
     type: Optional[str] = Field(default=None, description="Must be STRATEGIC THEME or EMERGING SIGNAL")
-    traceability: List[str] = Field(default_factory=list, description="Observations/facts directly supporting this")
+    traceability: List[str] = Field(default_factory=list, description="Min 2 observations or 3 facts required")
 
 class CompetitiveLandscape(BaseModel):
     competitor: Optional[str] = None
@@ -200,20 +198,25 @@ class CompetitiveLandscape(BaseModel):
     vulnerability_evidence: Optional[str] = None
 
 class EvaluatedOption(BaseModel):
+    option_type: Optional[str] = Field(default=None, description="Must be Conservative, Balanced, or Aggressive")
     description: Optional[str] = None
-    traceability_chain: Union[str, List[str], None] = Field(default=None, description="Supported by Theme [X] -> Root Cause [Y] -> Observation [Z] -> Evidence [A]")
+    traceability_chain: Union[str, List[str], None] = Field(default=None, description="Theme [X] -> Inference [Y] -> Observation [Z]")
+    evidence_support: Optional[str] = None
+    risk: Optional[str] = None
+    complexity: Optional[str] = None
+    strategic_fit: Optional[str] = None
     generic_test_passed: Optional[str] = Field(default=None, description="Yes or No")
 
 class DecisionIntelligenceBrief(BaseModel):
     status: str = Field(description="Must be exactly 'SUFFICIENT' or 'INSUFFICIENT_EVIDENCE'")
-    reason: Optional[str] = Field(default=None, description="Explanation of data sufficiency state.")
+    reason: Optional[str] = Field(default=None)
     
     evidence_and_observation_log: List[EvidenceLog] = Field(default_factory=list)
     strategic_themes_and_signals: List[ThemeSignal] = Field(default_factory=list)
     competitive_landscape: List[CompetitiveLandscape] = Field(default_factory=list)
     evaluated_options: List[EvaluatedOption] = Field(default_factory=list)
     
-    recommended_decision: Optional[str] = Field(default=None)
+    recommended_decision: Optional[str] = Field(default=None, description="Must reference 1 Observation, 1 Inference, 1 Theme, 1 Option.")
     contradicting_evidence: Optional[str] = Field(default=None)
     confidence_assessment: Optional[str] = Field(default=None)
 
@@ -336,57 +339,53 @@ def run_expert_reasoner(
     prompt = f"""# SYSTEM INSTRUCTIONS: EVIDENCE-BASED REASONING ENGINE
 
 ## ROLE & OBJECTIVE
-You are a strict Evidence-Based Reasoning Engine. Your primary responsibility is NOT to generate conclusions, but to rigorously construct and verify reasoning chains derived EXCLUSIVELY from provided data. 
-You must maximize accuracy, traceability, and reliability. Do not attempt to sound persuasive, strategic, or artificially confident.
+You are a strict Evidence-Based Reasoning Engine. Your primary responsibility is to rigorously construct and verify reasoning chains derived EXCLUSIVELY from provided data. Maximize accuracy, traceability, and reliability.
 
-## CORE PRINCIPLE: STRICT TRACEABILITY
-A conclusion is valid ONLY if every reasoning step is explicitly traced back to the original evidence. Plausible reasoning, general business wisdom, and industry assumptions are strictly prohibited. 
-
+## REQUIRED TRACEABILITY CHAIN
 Every output MUST follow this exact traceability chain:
-[Evidence] -> [Observation] -> [Root Cause] -> [Theme] -> [Option] -> [Decision]
-
-If any step in this chain is broken or missing, you must REJECT the conclusion.
+[Evidence] -> [Observation] -> [Root Cause] -> [Inference] -> [Theme] -> [Options] -> [Decision]
 
 ---
 
 ## EXECUTION PROTOCOL & VALIDATION GATES
 
 ### GATE 0: DATA SUFFICIENCY
-If evidence is insufficient to make reliable decisions, you MUST set "status" to "INSUFFICIENT_EVIDENCE".
-If status is INSUFFICIENT_EVIDENCE, populate the reason, but leave arrays empty or null for decisions.
+If evidence is insufficient to make reliable decisions, you MUST set "status" to "INSUFFICIENT_EVIDENCE", populate the reason, and leave arrays empty.
 
-### GATE 1: OBSERVATION VALIDATION
-* **Rule:** Observations must describe EXACTLY what the evidence shows. 
-* **Constraint:** You may NOT introduce new information or explanations. 
-* *Example:* If evidence says "Revenue increased," the observation is "Revenue increased." "Customer demand increased" is an invalid observation (it is an explanation).
+### GATE 1: OBSERVATION RULE
+Observations describe what happened. They never explain why. 
+* Example: "Revenue increased."
+* NOT: "Revenue increased because demand improved."
 
-### GATE 2: ROOT CAUSE CLASSIFICATION
-Every identified root cause MUST be strictly classified into one of four categories:
-* **CONFIRMED:** Explicitly and directly supported by provided evidence.
-* **LIKELY:** Strongly suggested by multiple converging data points.
-* **HYPOTHESIS:** Plausible based on data, but unproven.
-* **UNKNOWN:** Insufficient evidence to determine a cause.
-* *Constraint:* Never classify a cause as CONFIRMED unless the text explicitly proves it.
+### GATE 2: ROOT CAUSE RULE
+A root cause must explain an observation. If evidence does not explain the observation: Return UNKNOWN. Never restate the observation.
+* Bad: Observation: Profit declined. Root Cause: Profitability weakened.
+* Good: Root Cause: UNKNOWN OR Input cost inflation.
 
-### GATE 3: THEME & SIGNAL VALIDATION
-* **STRATEGIC THEME:** Requires a minimum of TWO (2) independent observations OR THREE (3) supporting facts.
-* **EMERGING SIGNAL:** If the threshold for a Theme is not met, it must be labeled as an Emerging Signal. Do not build strategic decisions solely on Emerging Signals.
+### GATE 3: INFERENCE LAYER (MOST IMPORTANT)
+This is where reasoning happens. Connect the Observation/Root Cause to strategic meaning.
+Inference can ONLY be classified as: CONFIRMED, LIKELY, or HYPOTHESIS.
+* Example: Observation = Tesla lost EV volume leadership. -> Inference = LIKELY | Production constraints reduced competitiveness.
 
-### GATE 4: COMPETITIVE VALIDATION
-* **Rule:** Do NOT provide general descriptions of competitors.
-* **Constraint:** Only identify explicitly evidence-backed advantages and evidence-backed vulnerabilities. If none exist in the data, output exactly: "Insufficient evidence."
+### GATE 4: THEME RULE
+Themes explain patterns across observations. A theme requires a MINIMUM of 2 observations OR 3 facts. Facts/Observations are not themes.
+* Good: Margin Pressure, Supply Chain Vulnerability.
+* Bad: Revenue Growth, Profit Decline.
 
-### GATE 5: OPTION GENERATION & DECISION TRACEABILITY
-Every Option and Final Decision must pass the following rigorous tests before output:
-1.  **The Traceability Test:** Does this option explicitly link to a Supporting Theme, Root Cause, Observation, and piece of Evidence? (If NO: Reject).
-2.  **The Generic Recommendation Detector:** Could this recommendation apply to a completely different company/situation without modification? (If YES: Reject).
-3.  **The Contradiction Test:** Is there any evidence in the dataset that contradicts this decision? (If YES: Note it explicitly and downgrade confidence).
+### GATE 5: OPTION SELECTION RULE
+Always generate exactly 3 evaluated options:
+1. Conservative Option
+2. Balanced Option
+3. Aggressive Option
+You must explicitly score each option based on: Evidence Support, Risk, Complexity, and Strategic Fit. Only select a recommendation AFTER scoring.
 
----
-
-## CONFIDENCE & KNOWLEDGE RULES
-1.  **ZERO External Knowledge:** All reasoning must originate from the provided information. Do not fill gaps with your own training data.
-2.  **Confidence Scoring:** Confidence must be calculated based strictly on: Evidence Quality, Evidence Quantity, Evidence Consistency, and Traceability Completeness. It must NEVER be based on writing style or linguistic certainty.
+### GATE 6: DECISION TRACEABILITY RULE
+Every final recommendation must explicitly reference:
+- 1 Observation
+- 1 Inference
+- 1 Theme
+- 1 Option
+If any are missing, the recommendation is invalid.
 
 ==================================================
 Evidence Sufficiency Input: {'SUFFICIENT' if evidence_sufficient else 'INSUFFICIENT_EVIDENCE'} ({sufficiency_message})
@@ -402,11 +401,29 @@ OUTPUT STRICT JSON MATCHING THE PROVIDED PYDANTIC SCHEMA.
 {
   "status": "SUFFICIENT or INSUFFICIENT_EVIDENCE",
   "reason": "...",
-  "evidence_and_observation_log": [{"evidence": "...", "observation": "...", "root_cause_and_class": "..."}],
+  "evidence_and_observation_log": [
+    {
+      "evidence": "...", 
+      "observation": "...", 
+      "root_cause": "...", 
+      "inference": "... | CONFIRMED/LIKELY/HYPOTHESIS"
+    }
+  ],
   "strategic_themes_and_signals": [{"name": "...", "type": "STRATEGIC THEME or EMERGING SIGNAL", "traceability": ["..."]}],
   "competitive_landscape": [{"competitor": "...", "advantage": "...", "advantage_evidence": "...", "vulnerability": "...", "vulnerability_evidence": "..."}],
-  "evaluated_options": [{"description": "...", "traceability_chain": "...", "generic_test_passed": "Yes/No"}],
-  "recommended_decision": "...",
+  "evaluated_options": [
+    {
+      "option_type": "Conservative/Balanced/Aggressive",
+      "description": "...",
+      "traceability_chain": "...",
+      "evidence_support": "...",
+      "risk": "...",
+      "complexity": "...",
+      "strategic_fit": "...",
+      "generic_test_passed": "Yes/No"
+    }
+  ],
+  "recommended_decision": "Recommendation referencing 1 Obs, 1 Inf, 1 Theme, 1 Option...",
   "contradicting_evidence": "...",
   "confidence_assessment": "..."
 }"""
@@ -444,7 +461,6 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
             time.sleep(1)
 
             st.write("📊 Fact Extraction System...")
-            # Expanded slice to 6000 to keep high-impact metrics from being dropped mid-sentence
             raw_facts = run_researcher(company, entity, raw_context[:6000])
 
             st.write("🔒 Hard-Gate Evidence Validation...")
@@ -486,13 +502,17 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
         else:
             st.success(f"✅ **DATA SUFFICIENCY GATE PASSED**\n{final_brief.reason or 'Evidence meets threshold.'}")
 
-        # 1. EVIDENCE & OBSERVATION LOG
-        st.markdown("### 1. Evidence & Observation Log")
+        # 1. EVIDENCE, OBSERVATION & INFERENCE LOG
+        st.markdown("### 1. Evidence, Observation & Inference Log")
         for log in final_brief.evidence_and_observation_log:
             with st.container(border=True):
                 st.markdown(f"**Evidence:** `{log.evidence or 'N/A'}`")
                 st.info(f"**Observation:** {log.observation or 'N/A'}")
-                st.warning(f"**Root Cause & Class:** {log.root_cause_and_class or 'N/A'}")
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.warning(f"**Root Cause:** {log.root_cause or 'UNKNOWN'}")
+                with c2:
+                    st.success(f"**Inference:** {log.inference or 'N/A'}")
 
         # 2. STRATEGIC THEMES & SIGNALS
         st.markdown("### 2. Strategic Themes & Signals")
@@ -521,12 +541,24 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
                     st.error(f"**Vulnerability:** {comp.vulnerability or 'None explicitly supported'}")
                     st.caption(f"**Evidence:** {comp.vulnerability_evidence or 'N/A'}")
 
-        # 4. EVALUATED OPTIONS
+        # 4. EVALUATED OPTIONS (WITH SCORES)
         st.markdown("### 4. Evaluated Options")
         for opt in final_brief.evaluated_options:
             with st.container(border=True):
-                st.markdown(f"**Option:** {opt.description or 'N/A'}")
+                # Dynamically color the option type
+                opt_type = opt.option_type or "Unknown"
+                color = "blue" if "Conservative" in opt_type else "orange" if "Balanced" in opt_type else "red"
+                st.markdown(f"**Option Type:** :{color}[{opt_type}]")
+                st.markdown(f"**Description:** {opt.description or 'N/A'}")
                 
+                # Render Scores
+                sc1, sc2, sc3, sc4 = st.columns(4)
+                sc1.metric("Evidence Support", opt.evidence_support or "N/A")
+                sc2.metric("Risk", opt.risk or "N/A")
+                sc3.metric("Complexity", opt.complexity or "N/A")
+                sc4.metric("Strategic Fit", opt.strategic_fit or "N/A")
+
+                # Traceability
                 chain = opt.traceability_chain
                 if isinstance(chain, list):
                     chain = "\n-> ".join(chain)
@@ -537,16 +569,14 @@ if st.button("Run Evidence-Based Reasoning", type="primary"):
                     st.success("✅ **Passed Generic Test:** Uniquely applies to this situation.")
                 elif "No" in passed_test:
                     st.error("❌ **Failed Generic Test:** Recommendation is too generic.")
-                else:
-                    st.warning("⚠️ **Generic Test:** Status Unknown")
 
         # 5. FINAL DECISION & INTEGRITY CHECK
-        st.markdown("### 5. Final Decision & Integrity Check")
+        st.markdown("### 5. Final Decision & Traceability Integrity")
         with st.container(border=True):
             st.subheader("Recommended Decision")
-            
             if final_brief.recommended_decision:
                 st.success(final_brief.recommended_decision)
+                st.caption("*Integrity Check: Ensure the recommendation explicitly references 1 Observation, 1 Inference, 1 Theme, and 1 Option.*")
             else:
                 st.write("No recommendation generated.")
             
