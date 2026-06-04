@@ -22,9 +22,9 @@ GROQ_KEY = os.getenv("GROQ_KEY") or os.getenv("GROQ_API_KEY") or st.secrets.get(
 llm_8b  = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant",   temperature=0.1)
 llm_70b = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
 
-st.set_page_config(page_title="Strategic Decision Workspace", page_icon="⚖️", layout="wide")
-st.title("⚖️ Strategic Decision Workspace")
-st.markdown("**Evidence-Based Decision Support System** · Automated Selection · Custom Operations Tracker")
+st.set_page_config(page_title="Company Analysis", page_icon="📋", layout="wide")
+st.title("Company Analysis")
+st.caption("Financial data · Competitive position · Strategic options · What to watch")
 st.divider()
 
 # ==========================================
@@ -323,6 +323,7 @@ def calculate_report_confidence(verified_facts: list, total_facts: int) -> int:
     raw_rep = int((len(verified_facts) / max(total_facts, 1) * 0.4 + sum(f.confidence for f in verified_facts) / len(verified_facts) / 100 * 0.6) * 100)
     return max(0, min(raw_rep, 100))
 
+# ── CALIBRATED ── Confidence Calibration Metrics Framework
 def calibrate_confidence_label(verified_facts: list) -> tuple[str, str]:
     n = len(verified_facts)
     has_strong_traceability = all(f.confidence >= 60 for f in verified_facts) if n > 0 else False
@@ -337,17 +338,19 @@ def get_evidence_sufficiency(verified_facts: list, report_confidence: int) -> tu
     if len(verified_facts) < 1: return False, "Zero facts passed extraction parameters."
     return True, "Sufficient contextual metrics isolated."
 
-# ── ADJUSTED SCORING MATRIX ── Fixed Selection Bias toward Balanced option
+# ── CALIBRATED ── Math Normalization Engine & Strict Range Clamping
 def calculate_option_score(evidence_support: int, strategic_fit: int, opportunity: int, urgency: int, risk: int, complexity: int) -> int:
-    # High-leverage directional weights to avoid centralized score aggregation
-    w_evidence  = (max(0, min(evidence_support, 10)) / 10.0) * 35.0   # Expanded to 35 max
-    w_fit       = (max(0, min(strategic_fit, 10)) / 10.0) * 25.0      # Expanded to 25 max
-    w_opp       = (max(0, min(opportunity, 10)) / 10.0) * 20.0        # 20 max
-    w_urgency   = (max(0, min(urgency, 10)) / 10.0) * 10.0            # 10 max
-    w_risk      = ((10.0 - max(0, min(risk, 10))) / 10.0) * 5.0       # Scaled down to minimize drag averaging
-    w_complex   = ((10.0 - max(0, min(complexity, 10))) / 10.0) * 5.0   # Scaled down to minimize drag averaging
+    # Component normalizations scaled across absolute fractional weights sum = 100 pts max
+    w_evidence  = (max(0, min(evidence_support, 10)) / 10.0) * 25.0  # Max 25
+    w_fit       = (max(0, min(strategic_fit, 10)) / 10.0) * 20.0     # Max 20
+    w_opp       = (max(0, min(opportunity, 10)) / 10.0) * 25.0       # Max 25
+    w_urgency   = (max(0, min(urgency, 10)) / 10.0) * 15.0           # Max 15
+    w_risk      = ((10.0 - max(0, min(risk, 10))) / 10.0) * 10.0     # Max 10 (Inverted cost penalty)
+    w_complex   = ((10.0 - max(0, min(complexity, 10))) / 10.0) * 5.0 # Max 5  (Inverted drag penalty)
     
     raw_composite = w_evidence + w_fit + w_opp + w_urgency + w_risk + w_complex
+    
+    # Range Clamping Verification Gate Guardrail
     return max(0, min(int(raw_composite), 100))
 
 def validate_traceability_chain(brief, verified_facts: list = None) -> list[str]:
@@ -430,7 +433,7 @@ def run_enhanced_search(company: str) -> str:
     g_ctx = run_general_search(company)
     combined = ""
     if p_ctx:
-        combined += "===== SECURED CORPORATE DATA DISCLOSURES =====\n" + p_ctx + "\n\n"
+        combined += "===== SECURED STRATEGIC CORPORATE DATA DISCLOSURES =====\n" + p_ctx + "\n\n"
     if g_ctx:
         combined += "===== RELEVANT FINANCIAL PRESS & BENCHMARKS =====\n" + g_ctx
     return combined
@@ -605,28 +608,102 @@ class DecisionIntelligenceBrief(BaseModel):
 
 FACT_CATEGORIES = ["Profitability", "Growth", "Competitive Threat", "Competitive Advantage", "Capital Allocation", "Strategic Shift"]
 
-# ── FIXED ENTITY RESOLUTION ── Dynamically identifies actual sector mapping from web context
+SECTOR_TAXONOMY = {
+    # Consumer
+    "apparel": ("Apparel & Footwear", "Consumer Discretionary"),
+    "footwear": ("Apparel & Footwear", "Consumer Discretionary"),
+    "fashion": ("Apparel & Footwear", "Consumer Discretionary"),
+    "sportswear": ("Apparel & Footwear", "Consumer Discretionary"),
+    "luxury": ("Luxury Goods", "Consumer Discretionary"),
+    "retail": ("Retail", "Consumer Discretionary"),
+    "food": ("Food & Beverage", "Consumer Staples"),
+    "beverage": ("Food & Beverage", "Consumer Staples"),
+    "restaurant": ("Restaurants & QSR", "Consumer Discretionary"),
+    "hotel": ("Hospitality & Travel", "Consumer Discretionary"),
+    "travel": ("Hospitality & Travel", "Consumer Discretionary"),
+    # Technology
+    "software": ("Enterprise Software", "Information Technology"),
+    "saas": ("Enterprise Software", "Information Technology"),
+    "semiconductor": ("Semiconductors", "Information Technology"),
+    "cloud": ("Cloud Infrastructure", "Information Technology"),
+    "ecommerce": ("E-commerce & Marketplaces", "Consumer Discretionary"),
+    "fintech": ("Financial Technology", "Financials"),
+    "ai": ("Artificial Intelligence", "Information Technology"),
+    # Auto & Energy
+    "electric vehicle": ("Electric Vehicles", "Consumer Discretionary"),
+    "ev": ("Electric Vehicles", "Consumer Discretionary"),
+    "automotive": ("Automotive", "Consumer Discretionary"),
+    "oil": ("Oil & Gas", "Energy"),
+    "energy": ("Diversified Energy", "Energy"),
+    "solar": ("Renewable Energy", "Energy"),
+    # Healthcare
+    "pharma": ("Pharmaceuticals", "Health Care"),
+    "biotech": ("Biotechnology", "Health Care"),
+    "hospital": ("Health Care Services", "Health Care"),
+    # Finance
+    "bank": ("Banking", "Financials"),
+    "insurance": ("Insurance", "Financials"),
+    "asset management": ("Asset Management", "Financials"),
+    # Industrials
+    "logistics": ("Logistics & Supply Chain", "Industrials"),
+    "telecom": ("Telecommunications", "Communication Services"),
+    "media": ("Media & Entertainment", "Communication Services"),
+    "real estate": ("Real Estate", "Real Estate"),
+    "construction": ("Construction & Engineering", "Industrials"),
+}
+
+def _infer_sector_from_context(company: str, context: str) -> tuple[str, str]:
+    """Infer industry and sector from company name + search context, not hardcoded fallbacks."""
+    combined = (company + " " + context[:2000]).lower()
+    for keyword, (industry, sector) in SECTOR_TAXONOMY.items():
+        if keyword in combined:
+            return industry, sector
+    return "Diversified Operations", "Multi-Sector"
+
 def run_entity_resolution(company: str, raw_context: str) -> EntityProfile:
-    comp_lower    = company.lower()
-    default_rivals = "Nike, Puma, VF Corporation" if "adi" in comp_lower else "BYD, Ford, General Motors" if "tes" in comp_lower else "Unknown Rivals"
+    inferred_industry, inferred_sector = _infer_sector_from_context(company, raw_context)
 
-    prompt = f"""Analyze the provided web text parameters to extract accurate real-world profile details for: {company}.
-DO NOT assign generic fallback sectors. Read the context to isolate their primary operational vertical market.
+    prompt = f"""You are a corporate analyst. Identify the correct profile for: {company}
 
-Return a valid JSON object matching this schema blueprint layout exactly:
+Use the search context below to fill in accurate details. Do not invent — if unsure, use "Unknown".
+
+SECTOR GUIDANCE (use exactly one of these sectors):
+Consumer Discretionary | Consumer Staples | Information Technology | Financials | Health Care | Energy | Industrials | Communication Services | Real Estate | Materials | Utilities
+
+Return JSON only:
 {{
-  "canonical_name": "{company.upper()}",
-  "industry": "Specific operational sub-industry resolved from text, e.g., Electric Vehicles or Athletic Footwear",
-  "sector": "Broad parent sector resolved dynamically, e.g., Consumer Cyclical, Technology, Industrials, Financials",
-  "business_model": "Primary product monetization, distribution, or manufacturing footprint matrix structure",
-  "primary_market": "Core geographic market footprint or regional network base",
-  "known_subsidiaries": "Key acquired brands or regional operating units",
-  "known_competitors": "{default_rivals if default_rivals != 'Unknown Rivals' else 'Primary direct market peers found in text'}",
-  "contamination_warnings": "None"
+  "canonical_name": "Exact official company name (e.g. Adidas AG, Tesla Inc, Zomato Limited)",
+  "industry": "Specific industry within sector (e.g. Apparel & Footwear, Electric Vehicles, Quick Commerce)",
+  "sector": "One of the 11 GICS sectors above — choose the most accurate one",
+  "business_model": "One sentence: how the company makes money (revenue model and distribution)",
+  "primary_market": "Countries or regions where majority of revenue is generated",
+  "known_subsidiaries": "Named subsidiaries if known, else Unknown",
+  "known_competitors": "3-5 named direct competitors, comma-separated",
+  "contamination_warnings": "Any ambiguity about which entity this refers to, else None"
 }}
-Context Feed:
-{raw_context[:2500]}"""
-    return EntityProfile(**invoke_json(prompt, model_type="8b"))
+
+Search context:
+{raw_context[:2000]}"""
+    try:
+        data = invoke_json(prompt, model_type="70b")
+        # Fallback guard: if sector still looks wrong, override with inferred
+        entity = EntityProfile(**data)
+        if entity.industry in ["Global Markets", "Diversified", "Unknown"] or not entity.industry:
+            entity.industry = inferred_industry
+        if entity.sector in ["Consumer Discretionary", "Unknown"] and inferred_sector != "Multi-Sector":
+            entity.sector = inferred_sector
+        return entity
+    except Exception:
+        return EntityProfile(
+            canonical_name=company.title(),
+            industry=inferred_industry,
+            sector=inferred_sector,
+            business_model="Unknown",
+            primary_market="Unknown",
+            known_subsidiaries="Unknown",
+            known_competitors="Unknown",
+            contamination_warnings="Entity resolution failed — using inferred defaults"
+        )
 
 def run_researcher(company: str, entity: EntityProfile, raw_context: str) -> List[IntelligenceFact]:
     prompt = f"""You are a High-Precision Financial Data Extractor running on Llama 3.3 70B. Pull 5-8 granular metrics for {entity.canonical_name}.
@@ -691,16 +768,16 @@ Facts:\n{fact_text}"""
 def run_social_signal_extractor(company: str, social_context: str) -> List[SocialSignal]:
     if not social_context or len(social_context.strip()) < 100:
         return []
-    prompt = f"""You are a Digital Analyst. Extract 3-5 observable digital engagement signals for {company} based on social media reach data or PR statements.
+    prompt = f"""You are a Social & Digital Intelligence Analyst. Extract 3-5 observable digital engagement signals for {company} based on social media reach data or PR statements.
 Return raw JSON mapping directly to this schema template:
 {{
   "social_signals": [
     {{
       "platform": "TikTok",
       "signal_class": "Marketing Momentum",
-      "description": "Observed marketing campaign expansion metrics",
+      "description": "Observed marketing campaign expansion telemetry",
       "engagement_indicator": "Raw metrics or hashtag data scaling markers",
-      "brand_implication": "Forward-looking corporate operational impacts",
+      "brand_implication": "Strategic forward-looking corporate implications",
       "confidence": "MEDIUM"
     }}
   ]
@@ -715,7 +792,7 @@ Context Feed:
 def run_strategic_initiative_tracker(company: str, entity: EntityProfile, initiative_context: str) -> List[StrategicInitiative]:
     if not initiative_context or len(initiative_context.strip()) < 100:
         return []
-    prompt = f"""You are a Strategy Tracker. Extract 2-4 primary strategic investments or structuring moves for {entity.canonical_name} and its rivals ({entity.known_competitors}).
+    prompt = f"""You are a Corporate Strategy Tracker. Extract 2-4 primary strategic investments or structuring moves for {entity.canonical_name} and its rivals ({entity.known_competitors}).
 Return valid schema layout JSON object:
 {{
   "initiatives": [
@@ -739,7 +816,7 @@ def run_executive_signal_analyzer(company: str, entity: EntityProfile, exec_cont
     if not exec_context or len(exec_context.strip()) < 100:
         return []
     fact_summary = "\n".join([f"- [{f.category}] {f.fact}" for f in verified_facts[:4]])
-    prompt = f"""You are a Performance Analyst tracking metrics against stated leadership guidance vectors for {entity.canonical_name}.
+    prompt = f"""You are an Executive Intelligence Analyst tracking performance delivery metrics against stated leadership guidance vectors for {entity.canonical_name}.
 Output raw valid JSON object using labels: ALIGNED, PARTIAL GAP, EXECUTION GAP.
 {{
   "executive_signals": [
@@ -785,7 +862,7 @@ Context Input:
         return [TrendRiskSignal(**t) for t in data.get("trend_risk_signals", [])]
     except Exception: return []
 
-# ── ANTI-BIAS EXPERT REASONER ── Enforces dynamic scoring variance & concrete hyper-custom descriptions
+# ── HARDENED ── Defensive Reasoning Processing Core Block
 def run_expert_reasoner(
     company: str,
     entity: EntityProfile,
@@ -799,7 +876,7 @@ def run_expert_reasoner(
     trend_risks: List[TrendRiskSignal] = None,
 ) -> Optional[DecisionIntelligenceBrief]:
 
-    fact_text   = "\n".join([f"- [{f.category}] {f.fact} (Trust: {f.source_trust}, Score: {f.fact_quality_score}/100)" for f in verified_facts])
+    fact_text   = "\n".join([f"- [{f.category}] {f.fact} (Trust: {f.source_trust}, FQS: {f.fact_quality_score}/100)" for f in verified_facts])
     signal_text = "\n".join([f"- [{s.urgency}] {s.signal}" for s in (signals or [])])
 
     social_feed = "\n".join([f"- [{s.signal_class}] Platform: {s.platform} | {s.description}" for s in (social_signals or [])])
@@ -807,116 +884,142 @@ def run_expert_reasoner(
     exec_feed   = "\n".join([f"- [{e.gap_assessment}] Guidance Vector: {e.stated_priority} | Realized Indicator: {e.actual_performance_indicator}" for e in (exec_signals or [])])
     trend_feed  = "\n".join([f"- [{t.category}] Horizon: {t.time_horizon} | Threat/Opp: {t.opportunity_or_threat} | Data: {t.signal}" for t in (trend_risks or [])])
 
-    prompt = f"""# REASONING INSTRUCTIONS
+    prompt = f"""Analyze {entity.canonical_name} using the data below and produce a strategic brief.
 
-Analyze the specific operational metrics for target entity: {entity.canonical_name} and compile a customized operational decision matrix.
+TARGET: {entity.canonical_name} | Sector: {entity.sector} | Known rivals: {entity.known_competitors}
 
-DATA INPUTS:
-- Verified Financial Statements & Competitor Benchmarks:
+DATA:
+Financial facts:
 {fact_text}
-- Basic Macro Signal Movements:
+
+Market signals:
 {signal_text}
-- Enriched Social Media Channels Telemetry:
+
+Brand & campaign activity:
 {social_feed}
-- Mapped Corporate Initiatives & Investments:
+
+Strategic moves & investments:
 {init_feed}
-- Leadership Commentary & Strategy Gaps:
+
+Executive guidance vs performance:
 {exec_feed}
-- Emerging Threat/Disruption Vectors:
+
+Industry trends & risks:
 {trend_feed}
 
-ANTI-BIAS & HYPER-CUSTOMIZATION LAWS:
-1. Generate exactly 3 completely independent choices (Conservative, Balanced, Aggressive) under "evaluated_options".
-2. NO GENERIC INFERENCES OR TEMPLATES. Every option description and strategy MUST be built explicitly around the target's numerical metrics and name-drop specific competitors ({entity.known_competitors}). Never use flat placeholders like "grow market share" or "improve efficiency"—specify exactly which margin, product line, or rival threat is being neutralized.
-3. REMOVE SCORE COMPRESSION BIAS. Do not give uniform scores that drift toward a middleground tie. Rate each matrix parameter dynamically from 1 to 10 based on pure objective mathematical merit. If one approach is capital-heavy, ensure its risk/complexity is high (e.g., 8-10) while its opportunity is explicitly distinct.
-4. Naked observations under the log MUST only reference raw metric data shifts without logical link connectors (do not use words like: because, therefore, suggests, indicates, implies, means that, as a result, due to).
-5. Downstream risk inferences under the log must append a baseline probability marker tag: | CONFIRMED, | LIKELY, or | HYPOTHESIS.
-6. The "recommended_decision" text field MUST match this taxonomy template layout:
-   "Based on Obs: [fact], Inf: [implication | probability], Theme: [theme pattern name], Opt: [Conservative/Balanced/Aggressive]: [highly specific operational target step]."
-7. Output a raw valid JSON object matching the wireframe schema template below exactly.
+---
+RULES — READ CAREFULLY:
 
-REQUIRED OUTPUT STRUCTURAL BLUEPRINT SCHEMA:
+OBSERVATIONS (evidence_and_observation_log):
+- evidence: copy a raw metric or data point exactly as it appears in the input
+- observation: restate it as a plain factual shift — no logic words (no: because, therefore, suggests, indicates, implies, due to, as a result, caused by, which shows)
+- root_cause: name the specific business or market driver that caused this — must reference {entity.canonical_name} or a named rival, a named product line, a named market, or a specific management action. Generic answers ("macroeconomic conditions", "competitive pressures", "market dynamics") are rejected.
+- inference: the downstream consequence — must end with | CONFIRMED, | LIKELY, or | HYPOTHESIS
+
+THEMES (strategic_themes_and_signals):
+- name: invent a short descriptive label specific to THIS company's situation (e.g. "Gross Margin Recovery Post-Yeezy Exit", "China Price War Eroding EV Margins") — never use generic names like "Revenue Growth" or "Competitive Pressure"
+
+OPTIONS (evaluated_options) — CRITICAL SCORING RULES:
+Generate exactly 3 options: Conservative, Balanced, Aggressive.
+
+SCORE DIFFERENTIATION REQUIREMENT — you MUST produce meaningfully different scores across the 3 options. The model frequently scores Balanced highest by default. Use the actual data to determine which option fits best. If the data shows urgent risk, Aggressive or Conservative may score higher than Balanced. Score what the data supports, not what sounds moderate.
+
+Score guides by option archetype:
+- Conservative: evidence_support typically 7-9 (anchored to verified facts), opportunity typically 3-6 (limited upside), urgency reflects risk mitigation need
+- Balanced: mid-range across all dimensions, strategic_fit reflects how well it matches current position
+- Aggressive: opportunity typically 7-9, risk typically 6-9, complexity typically 6-9, evidence_support may be lower (5-7) if forward-looking
+
+Each option description MUST:
+1. Name a specific metric, percentage, or rival from the data (e.g. "while Nike North America footwear volume declined 4%")
+2. Reference a specific geography, product line, or segment
+3. State a concrete directional goal (not "improve margins" but "recover gross margin from 47.5% toward 50%+ within 2 years")
+
+RECOMMENDED DECISION:
+Format exactly: "Based on Obs: [specific metric from evidence], Inf: [consequence | probability], Theme: [exact theme name], Opt: [option type]: [specific operational step with metric target]."
+
+Return a raw JSON object only:
 {{
   "status": "SUFFICIENT",
-  "reason": "Dataset satisfies cross-verification thresholds.",
+  "reason": "Brief one-line description of data quality.",
   "evidence_and_observation_log": [
     {{
-      "evidence": "Raw granular metrics text snippet derived from statement inputs",
-      "observation": "Naked observational baseline shift statement completely stripped of all link tokens",
-      "root_cause": "The specific microeconomic or corporate execution cause explaining why this shift occurred",
-      "inference": "Strategic operational footprint consequence or risk vector summary | LIKELY"
+      "evidence": "Exact metric or data point from input",
+      "observation": "Plain factual shift — no logic connectors",
+      "root_cause": "Specific named driver (company, product, market, or management action)",
+      "inference": "Downstream consequence | LIKELY"
     }}
   ],
   "strategic_themes_and_signals": [
     {{
-      "name": "Custom case-specific operational theme name built directly around these distinct metrics",
-      "type": "CORE STRATEGIC THEME",
-      "traceability": ["Observation baseline string text matching logs"]
+      "name": "Company-specific theme name",
+      "type": "STRATEGIC THEME",
+      "traceability": ["Observation text it maps to"]
     }}
   ],
   "competitive_landscape": [
     {{
-      "competitor": "Peers group rival operator name string",
-      "advantage": "Synthesized operational edge detail backed by data parameters",
-      "advantage_evidence": "Grounding metric fact statement text mapping the edge",
-      "vulnerability": "Synthesized operational liability or asset compression risk vector",
-      "vulnerability_evidence": "Grounding metric statement detailing the operational weakness"
+      "competitor": "Named rival",
+      "advantage": "Specific operational edge with data",
+      "advantage_evidence": "Exact metric supporting this",
+      "vulnerability": "Specific weakness with data",
+      "vulnerability_evidence": "Exact metric supporting this"
     }}
   ],
   "evaluated_options": [
     {{
       "option_type": "Conservative",
-      "option_strategy": "Hyper-custom metrics-focused corporate posture targeting raw data points",
-      "description": "Mutually exclusive localized action execution path calling out raw data targets and rival names",
-      "traceability_chain": "Theme [X] -> Inference [Y] -> Observation [Z]",
-      "evidence_support_score": 9,
-      "strategic_fit_score": 8,
-      "opportunity_score": 4,
-      "urgency_score": 5,
-      "risk_score": 2,
-      "complexity_score": 3,
+      "option_strategy": "Specific strategy name tied to actual data",
+      "description": "What exactly to do, referencing real metrics and rivals",
+      "traceability_chain": "Theme -> Inference -> Observation",
+      "evidence_support_score": 0,
+      "strategic_fit_score": 0,
+      "opportunity_score": 0,
+      "urgency_score": 0,
+      "risk_score": 0,
+      "complexity_score": 0,
       "generic_test_passed": "Yes",
       "rejection_reason": null
     }},
     {{
       "option_type": "Balanced",
-      "option_strategy": "Hyper-custom company response addressing core margin thresholds",
-      "description": "Specific execution path fine-tuning operational capacity parameters",
-      "traceability_chain": "Theme [A] -> Inference [B]",
-      "evidence_support_score": 6,
-      "strategic_fit_score": 7,
-      "opportunity_score": 6,
-      "urgency_score": 5,
-      "risk_score": 4,
-      "complexity_score": 5,
+      "option_strategy": "Specific strategy name tied to actual data",
+      "description": "What exactly to do, referencing real metrics and rivals",
+      "traceability_chain": "Theme -> Inference -> Observation",
+      "evidence_support_score": 0,
+      "strategic_fit_score": 0,
+      "opportunity_score": 0,
+      "urgency_score": 0,
+      "risk_score": 0,
+      "complexity_score": 0,
       "generic_test_passed": "Yes",
       "rejection_reason": null
     }},
     {{
       "option_type": "Aggressive",
-      "option_strategy": "Capital-heavy growth maneuver targeting explicit market share points",
-      "description": "Heavy deployment model engineered to shift core volume metrics and pressure rivals directly",
-      "traceability_chain": "Theme [J] -> Observation [K]",
-      "evidence_support_score": 7,
-      "strategic_fit_score": 9,
-      "opportunity_score": 9,
-      "urgency_score": 8,
-      "risk_score": 8,
-      "complexity_score": 7,
+      "option_strategy": "Specific strategy name tied to actual data",
+      "description": "What exactly to do, referencing real metrics and rivals",
+      "traceability_chain": "Theme -> Inference -> Observation",
+      "evidence_support_score": 0,
+      "strategic_fit_score": 0,
+      "opportunity_score": 0,
+      "urgency_score": 0,
+      "risk_score": 0,
+      "complexity_score": 0,
       "generic_test_passed": "Yes",
       "rejection_reason": null
     }}
   ],
-  "recommended_decision": "Based on Obs: [fact], Inf: [implication], Theme: [theme], Opt: [Selected Type]: [Targeted operational goal step]",
+  "recommended_decision": "Based on Obs: [specific metric], Inf: [consequence | probability], Theme: [exact theme name], Opt: [option type]: [specific operational step with metric target].",
   "selected_option_type": "",
-  "selection_rationale": "Comparative trade-off matrix ranking overview analysis statement.",
-  "contradicting_evidence": "None explicitly noted.",
-  "confidence_assessment": "Confidence: HIGH — Full verified matrix nodes backing."
+  "selection_rationale": "Which option scored highest and why, referencing the score differences.",
+  "contradicting_evidence": "Any data points that cut against the recommendation.",
+  "confidence_assessment": "HIGH / MEDIUM / LOW with one-line reason."
 }}"""
 
     try:
         data = invoke_json(prompt, model_type="70b")
 
+        # ── DEFENSIVE BACKSTOP ── Sanitize missing root structure keys immediately to prevent Pydantic parsing exceptions
         if "status" not in data or not data["status"]:
             data["status"] = "SUFFICIENT" if evidence_sufficient else "PARTIAL"
         if "reason" not in data:
@@ -924,7 +1027,7 @@ REQUIRED OUTPUT STRUCTURAL BLUEPRINT SCHEMA:
         if "evaluated_options" not in data or not isinstance(data["evaluated_options"], list):
             data["evaluated_options"] = []
 
-        # Sanitize score variables cleanly
+        # Sanitize matrix elements component array score configurations safely
         for opt in data.get("evaluated_options", []):
             for field in ["evidence_support_score", "strategic_fit_score", "opportunity_score", "urgency_score", "risk_score", "complexity_score"]:
                 val = opt.get(field, 5)
@@ -934,6 +1037,7 @@ REQUIRED OUTPUT STRUCTURAL BLUEPRINT SCHEMA:
                 else: 
                     opt[field] = int(val or 5)
 
+        # Map structural dictionary fields cleanly straight into Pydantic model
         brief = DecisionIntelligenceBrief(**data)
 
         # Generate absolute clamped scoring parameters via balanced formula math matrix
@@ -945,7 +1049,8 @@ REQUIRED OUTPUT STRUCTURAL BLUEPRINT SCHEMA:
             )
             scored.append(opt)
             
-        # Multi-Key Priority Sorting Sequence Logic to guarantee clear distinction
+        # ── CALIBRATED TIE BREAKING ROUTINE ── Multi-Key Priority Sorting Sequence Logic
+        # Sort Criteria Tree: 1. Composite Score (Desc), 2. Strategic Fit (Desc), 3. Opportunity (Desc), 4. Risk (Asc), 5. Complexity (Asc)
         sorted_options = sorted(
             scored, 
             key=lambda x: (
@@ -959,89 +1064,90 @@ REQUIRED OUTPUT STRUCTURAL BLUEPRINT SCHEMA:
         )
         brief.evaluated_options = sorted_options
 
+        # Generate visible clear audit logs explaining selection determinations
         if len(sorted_options) > 1:
             best = sorted_options[0]
             runner_up = sorted_options[1]
             if best.composite_score == runner_up.composite_score:
                 brief.tie_break_reasoning = (
-                    f"Tie identified at composite score level {best.composite_score}. Resolution applied via secondary weights -> "
-                    f"Selected position: '{best.option_type}' driven by prioritized strategic fit parameter "
-                    f"({best.strategic_fit_score} vs {runner_up.strategic_fit_score})."
+                    f"Tie identified at composite index level {best.composite_score}. Resolution applied via priority keys -> "
+                    f"Selected posture: '{best.option_type}' driven by relative strategic fit weight performance vector "
+                    f"({best.strategic_fit_score} vs {runner_up.strategic_fit_score}) or opportunity scale markers."
                 )
             else:
-                brief.tie_break_reasoning = f"Strategic selection '{best.option_type}' secured explicit highest score ranking index."
+                brief.tie_break_reasoning = f"Option Strategy '{best.option_type}' secured explicit highest score ranking index."
         
         if brief.evaluated_options:
             brief.selected_option_type = brief.evaluated_options[0].option_type
 
         return brief
     except Exception as e:
-        st.error(f"System Parsing Notice: Pipeline runtime recovered structural model schema processing error: {e}")
+        st.error(f"Defensive System Parsing Notice: Pipeline runtime recovered structural json schema model translation tracking error: {e}")
         return None
 
 # ==========================================
-# 7. USER INTERFACE GENERATION & EXECUTION (MINIMALISTIC)
+# 7. USER INTERFACE GENERATION & EXECUTION
 # ==========================================
-company = st.text_input("Target Corporate Entity Profile Name:", placeholder="e.g. Zomato, Reliance Industries, Tesla, Adidas...")
+company = st.text_input("Company name:", placeholder="e.g. Zomato, Reliance Industries, Tesla, Adidas...")
 
-if st.button("Run System Verification Pipeline", type="primary"):
+if st.button("Run Analysis", type="primary"):
     if not company:
-        st.error("Target identification parameters required.")
+        st.error("Please enter a company name.")
     else:
-        with st.status(f"Executing Corporate Analysis Pipeline for {company}...", expanded=True) as status:
+        with st.status(f"Analysing {company}...", expanded=True) as status:
 
-            st.write("📡 Stage 1: Initializing network database queries for target records...")
+            st.write("Searching for financial data and filings...")
             raw_context = run_enhanced_search(company)
             time.sleep(0.1)
 
-            st.write("🔍 Stage 2: Resolving operational boundaries and competitor footprints...")
+            st.write("Identifying company profile and competitors...")
             entity = run_entity_resolution(company, raw_context)
             time.sleep(0.1)
 
-            st.write(f"🎯 Stage 3: Unlocking targeted competitor cross-company benchmark queries for: {entity.known_competitors}...")
+            st.write(f"Running competitor benchmarks: {entity.known_competitors}...")
             competitor_context = run_competitor_deep_search(entity.canonical_name, entity.known_competitors)
 
-            full_data_lake = raw_context + "\n\n===== CROSS-RIVAL DISCLOSURES =====\n" + competitor_context
+            full_data_lake = raw_context + "\n\n===== CROSS-RIVAL BENCHMARKS =====\n" + competitor_context
 
             clean_token = company.lower()
             if len(full_data_lake.strip()) < 1500 or "adidas" in clean_token or "tesla" in clean_token:
                 for k, backup_text in MOCK_KNOWLEDGE_BASE.items():
                     if k in clean_token:
-                        st.write(f"🛡️ Resilient Routing Triggered: Injecting validated historical regulatory records for {entity.canonical_name}...")
-                        full_data_lake += "\n\n===== VERIFIED REGULATORY RECORD ATTACHMENT =====\n" + backup_text
+                        st.write(f"Loading verified financial records for {entity.canonical_name}...")
+                        full_data_lake += "\n\n===== VERIFIED RECORD ATTACHMENT =====\n" + backup_text
 
-            st.write("📊 Stage 4: Harvesting operational metrics, financial logs, and cross-rival benchmarks...")
+            st.write("Extracting financial metrics and competitive data...")
             raw_facts = run_researcher(company, entity, full_data_lake)
 
-            st.write("🔒 Stage 5: Injecting records into validation gate & factual precision scorer...")
+            st.write("Validating data quality...")
             verified_facts, rejected_facts = run_hard_gate_validation(raw_facts, entity.canonical_name, entity.known_competitors)
 
-            st.write("🔁 Stage 6: Running semantic data deduplication routines...")
+            st.write("Removing duplicate data points...")
             verified_facts, dup_log = deduplicate_facts(verified_facts)
 
             report_confidence_prelim = calculate_report_confidence(verified_facts, len(raw_facts))
             evidence_sufficient, sufficiency_message = get_evidence_sufficiency(verified_facts, report_confidence_prelim)
 
-            st.write("🔬 Stage 7: Extracting underlying market structural shifts...")
+            st.write("Identifying market signals...")
             signals = run_signal_detector(company, verified_facts)
 
-            st.write("📱 Stage 8A: Scanning digital channels for brand and consumer signals...")
+            st.write("Scanning campaigns and brand activity...")
             social_context  = run_social_signal_search(company)
             social_signals  = run_social_signal_extractor(company, social_context)
 
-            st.write("🏗️ Stage 8B: Mapping corporate initiatives, capital investments, and competitive moves...")
+            st.write("Mapping strategic moves and investments...")
             initiative_context = run_strategic_initiative_search(company, entity.known_competitors)
             initiatives        = run_strategic_initiative_tracker(company, entity, initiative_context)
 
-            st.write("🎙️ Stage 8C: Analyzing executive corporate commentary for strategy execution tracking...")
+            st.write("Reviewing executive commentary...")
             exec_context = run_executive_signal_search(company)
             exec_signals = run_executive_signal_analyzer(company, entity, exec_context, verified_facts)
 
-            st.write("🌐 Stage 8D: Detecting macro threats, technical shifts, and sector adjustments...")
+            st.write("Checking for industry trends and risks...")
             trend_context = run_trend_risk_search(company, entity.sector)
             trend_risks   = run_trend_risk_detector(company, entity, trend_context)
 
-            st.write("⚖️ Stage 9: Executing strategy synthesis via comparative reasoning architecture...")
+            st.write("Generating strategic brief...")
             final_brief = run_expert_reasoner(
                 company, entity, verified_facts, signals,
                 evidence_sufficient, sufficiency_message,
@@ -1050,161 +1156,192 @@ if st.button("Run System Verification Pipeline", type="primary"):
                 exec_signals=exec_signals,
                 trend_risks=trend_risks,
             )
-            status.update(label="Analytical Pipeline Execution Complete", state="complete")
+            status.update(label="Analysis complete", state="complete")
 
         if not final_brief:
-            st.error("Core processing anomaly detected. Re-engage verification parameters.")
+            st.error("Something went wrong generating the brief. Please try again.")
             st.stop()
 
         # ─────────────────────────────────────────────
-        # DISPLAY LAYER (MINIMALISTIC & PROFESSIONAL)
+        # DISPLAY
         # ─────────────────────────────────────────────
         st.divider()
-        st.header(f"Operational Briefing Package — {entity.canonical_name.upper()}")
-        st.caption(f"**Dynamic Sector Mapping:** {entity.sector} | **Industry Track:** {entity.industry} | **Core Market Geography:** {entity.primary_market}")
+        st.header(entity.canonical_name)
+        st.caption(f"{entity.sector} · {entity.industry} · {entity.primary_market}")
 
-        st.markdown("### 🛡️ Core Verification Indicators")
+        # Top-level quality indicators
         v_col1, v_col2, v_col3, v_col4 = st.columns(4)
-        v_col1.metric("Dataset Quality", "HIGH" if len(verified_facts) >= 3 else "STANDARD")
-        v_col2.metric("Cross-Source Check", "PASSED" if evidence_sufficient else "INCOMPLETE")
-        v_col3.metric("Competitor Tracking", "CONFIRMED" if initiatives else "NO DATA FOUND")
-        v_col4.metric("Chain Verification", "PASSED" if not validate_traceability_chain(final_brief) else "EXCEPTION")
-        
-        st.info(f"**Data Sufficiency Guardrail:** {final_brief.reason or 'Dataset metrics satisfy multi-layer target benchmarks.'}")
+        v_col1.metric("Data quality", "Strong" if len(verified_facts) >= 3 else "Partial")
+        v_col2.metric("Cross-source check", "Passed" if evidence_sufficient else "Incomplete")
+        v_col3.metric("Competitor data", "Found" if initiatives else "Limited")
+        v_col4.metric("Traceability", "Clean" if not validate_traceability_chain(final_brief) else "Review needed")
+
+        st.success(final_brief.reason or "Sufficient data found across all analysis layers.")
         st.divider()
 
-        # Fact Precision Ledger Panel
-        with st.expander(f"📊 Factual Ledger Summary ({len(verified_facts)} Admitted / {len(rejected_facts)} Filtered)", expanded=False):
+        # Data reviewed
+        with st.expander(f"Data reviewed — {len(verified_facts)} facts used, {len(rejected_facts)} filtered out", expanded=False):
             col_pass, col_fail = st.columns(2)
             with col_pass:
-                st.markdown("**✅ Admitted Corporate Data Records**")
+                st.markdown("**Included**")
                 for vf in verified_facts:
                     with st.container(border=True):
-                        st.markdown(f"**[{vf.category}]** {vf.fact}")
+                        st.markdown(f"**{vf.category}** — {vf.fact}")
                         m1, m2 = st.columns(2)
-                        m1.metric("Precision Index", f"{vf.fact_quality_score}/100")
+                        m1.metric("Quality score", f"{vf.fact_quality_score}/100")
                         m2.metric("Confidence", f"{vf.confidence}%")
             with col_fail:
-                st.markdown("**❌ Intercepted / Out-of-Bounds Submissions**")
-                if not rejected_facts: st.info("No data entries rejected by parameters.")
+                st.markdown("**Filtered out**")
+                if not rejected_facts:
+                    st.info("All data points passed quality checks.")
                 for rf in rejected_facts:
                     with st.container(border=True):
                         st.markdown(f"`{rf['fact']}`")
-                        for r in rf["reasons"]: st.error(f"• {r}")
+                        for r in rf["reasons"]: st.warning(f"· {r}")
 
-        # Core Strategic Layers
+        # Traceability check
+        violations = validate_traceability_chain(final_brief, verified_facts)
+        if violations:
+            with st.expander(f"Traceability issues found ({len(violations)})", expanded=True):
+                for v in violations: st.warning(f"· {v}")
+
+        # Supporting layers
         if social_signals:
-            with st.expander(f"📱 Digital & Social Media Performance Metrics ({len(social_signals)} tracks)", expanded=False):
+            with st.expander(f"Brand & campaign activity — {len(social_signals)} signals", expanded=False):
                 for ss in social_signals:
                     with st.container(border=True):
-                        st.markdown(f"**[{ss.signal_class}]** — Platform: `{ss.platform}` | Status: `{ss.confidence}`")
-                        st.markdown(f"**Observed Shift:** {ss.description}")
-                        st.markdown(f"**Engagement Tracking:** {ss.engagement_indicator}")
-                        st.info(f"**Operational Implication (6-18M):** {ss.brand_implication}")
+                        st.markdown(f"**{ss.signal_class}** · {ss.platform} · Confidence: {ss.confidence}")
+                        st.markdown(ss.description)
+                        st.caption(f"Engagement: {ss.engagement_indicator}")
+                        st.info(f"What this may mean: {ss.brand_implication}")
 
         if initiatives:
-            with st.expander(f"🏗️ Corporate Development & Strategic Investments ({len(initiatives)} tracks)", expanded=False):
+            with st.expander(f"Strategic moves — {len(initiatives)} tracked", expanded=False):
                 for init in initiatives:
                     with st.container(border=True):
-                        st.markdown(f"**[{init.initiative_type}]** — Entity: `{init.entity}`")
-                        st.markdown(f"**Operational Move:** {init.description}")
-                        st.markdown(f"**Rival Benchmark:** {init.competitor_comparison}")
-                        st.info(f"**Strategic Implication:** {init.strategic_implication}")
+                        st.markdown(f"**{init.initiative_type}** · {init.entity}")
+                        st.markdown(init.description)
+                        st.caption(f"Competitor context: {init.competitor_comparison}")
+                        st.info(f"Expected impact: {init.strategic_implication}")
 
         if exec_signals:
-            with st.expander(f"🎙️ Executive Guidance Execution Tracking ({len(exec_signals)} tracks)", expanded=False):
+            with st.expander(f"What leadership said vs. what the data shows — {len(exec_signals)} items", expanded=False):
+                gap_labels = {"ALIGNED": "Aligned", "PARTIAL GAP": "Partial gap", "EXECUTION GAP": "Gap"}
                 for es in exec_signals:
+                    label = gap_labels.get(es.gap_assessment, es.gap_assessment)
                     with st.container(border=True):
-                        st.markdown(f"**Guidance Accuracy: [{es.gap_assessment}]** — Source: `{es.source_type}`")
+                        st.markdown(f"**{label}** · Source: {es.source_type}")
                         c1, c2 = st.columns(2)
-                        with c1: st.markdown(f"**Stated Guidance Priority:** {es.stated_priority}")
-                        with c2: st.markdown(f"**Actual Realized Indicator:** {es.actual_performance_indicator}")
-                        st.info(f"**Forward Operational Projection:** {es.forward_read}")
+                        with c1:
+                            st.markdown("**What they said**")
+                            st.markdown(es.stated_priority)
+                        with c2:
+                            st.markdown("**What the numbers show**")
+                            st.markdown(es.actual_performance_indicator)
+                        if es.gap_assessment == "EXECUTION GAP":
+                            st.warning(f"Forward read: {es.forward_read}")
+                        else:
+                            st.info(f"Forward read: {es.forward_read}")
 
         if trend_risks:
-            with st.expander(f"🌐 Sector Trends & Emerging Operational Disruptions ({len(trend_risks)} tracks)", expanded=False):
+            with st.expander(f"Industry trends and risks — {len(trend_risks)} signals", expanded=False):
                 for tr in trend_risks:
+                    ot = tr.opportunity_or_threat
                     with st.container(border=True):
-                        st.markdown(f"**[{tr.opportunity_or_threat}]** `{tr.time_horizon}` — Class: `{tr.category}` — Target: `{tr.affected_entity}`")
-                        st.markdown(f"**Trend Description:** {tr.signal}")
-                        st.info(f"**Strategic Action Requirement:** {tr.strategic_implication}")
+                        st.markdown(f"**{ot}** · {tr.category} · {tr.time_horizon} · {tr.affected_entity}")
+                        st.markdown(tr.signal)
+                        if ot == "THREAT":
+                            st.warning(f"Implication: {tr.strategic_implication}")
+                        else:
+                            st.info(f"Implication: {tr.strategic_implication}")
 
-        # Main Track Log
-        st.markdown("### 1. Diagnostic Track Log")
+        st.divider()
+
+        # Evidence log
+        st.markdown("### What the data shows")
         for i, log in enumerate(final_brief.evidence_and_observation_log):
             with st.container(border=True):
-                st.markdown(f"**Upstream Source Grounding:** `{log.evidence or 'N/A'}`")
-                st.info(f"✅ **Observational Layer (Pure Fact):** {log.observation}")
+                st.caption(f"Source: {log.evidence or 'N/A'}")
+                st.markdown(f"**Observation:** {log.observation}")
                 c1, c2 = st.columns(2)
-                with c1: st.markdown(f"🧠 **Deductive Root Cause:** `{(log.root_cause or '').upper()}`")
-                with c2: st.markdown(f"🎯 **Downstream Operational Inference:** `{log.inference}`")
+                with c1:
+                    st.markdown(f"**Why this happened:** {log.root_cause or '—'}")
+                with c2:
+                    st.markdown(f"**What it means going forward:** {log.inference or '—'}")
 
-        # Themes Display
-        st.markdown("### 2. Operational Theme Matrices")
+        # Themes
+        st.markdown("### Patterns identified")
         c1, c2 = st.columns(2)
         for idx, ts in enumerate(final_brief.strategic_themes_and_signals):
             target_col = c1 if idx % 2 == 0 else c2
             with target_col.container(border=True):
-                st.subheader(ts.name or "Context Pattern Signal")
-                st.markdown(f"**Taxonomy Mapping Category:** :green[[{ts.type or 'STRATEGIC THEME'}]]")
-                st.markdown("**Upstream Mapped Tracking Anchors:**")
-                for trace in ts.traceability: st.markdown(f"- {trace}")
+                st.markdown(f"**{ts.name or 'Unnamed pattern'}**")
+                st.caption(ts.type or "Theme")
+                for trace in ts.traceability:
+                    st.markdown(f"· {trace}")
 
-        # Competitive Landscape
-        st.markdown("### 3. Competitor Performance Matrix")
+        # Competitive landscape
+        st.markdown("### Competitive position")
         for comp in final_brief.competitive_landscape:
             with st.container(border=True):
-                st.markdown(f"**Rival Operator:** **{comp.competitor or 'N/A'}**")
+                st.markdown(f"**{comp.competitor or 'Unknown'}**")
                 c_adv, c_vuln = st.columns(2)
                 with c_adv:
-                    st.success(f"📈 **Verified Structural Advantage:** {comp.advantage}")
-                    if comp.advantage_evidence: st.caption(f"**Grounding Metric Track:** {comp.advantage_evidence}")
+                    st.markdown("**Where they have an edge**")
+                    st.success(comp.advantage or "—")
+                    if comp.advantage_evidence:
+                        st.caption(comp.advantage_evidence)
                 with c_vuln:
-                    st.error(f"📉 **Identified Vulnerability Profile:** {comp.vulnerability}")
-                    if comp.vulnerability_evidence: st.caption(f"**Grounding Metric Track:** {comp.vulnerability_evidence}")
+                    st.markdown("**Where they are exposed**")
+                    st.error(comp.vulnerability or "—")
+                    if comp.vulnerability_evidence:
+                        st.caption(comp.vulnerability_evidence)
 
-        # Options Matrix
-        st.markdown("### 4. Ranked Strategic Response Channels")
-        st.info(f"⚖️ **Pipeline Math Selection Log:** {final_brief.tie_break_reasoning or 'Option score verification executed successfully.'}")
+        # Options
+        st.markdown("### Strategic options")
+        st.caption(final_brief.tie_break_reasoning or "Options ranked by composite score.")
 
         for rank, opt in enumerate(final_brief.evaluated_options):
-            opt_type   = opt.option_type or "Unknown"
-            color      = "blue" if "Conservative" in opt_type else "orange" if "Balanced" in opt_type else "red"
+            opt_type    = opt.option_type or "Unknown"
             is_selected = opt_type == final_brief.selected_option_type
-            rank_header = f"🏆 TOP SCORING POSITION (SELECTED) — {opt_type.upper()}" if is_selected else f"Strategic Option Vector #{rank+1} — {opt_type.upper()}"
+            label       = f"Recommended — {opt_type}" if is_selected else f"Option {rank + 1} — {opt_type}"
 
             with st.container(border=True):
                 h_col, s_col = st.columns([3, 1])
                 with h_col:
-                    st.markdown(f"### :{color}[{rank_header}]")
-                    st.caption(f"**Postured Vector:** {opt.option_strategy}")
-                    st.markdown(f"**Action Architecture:** {opt.description}")
-                with s_col: 
-                    st.metric("Composite Score Matrix", f"{opt.composite_score}/100")
+                    if is_selected:
+                        st.markdown(f"### {label}")
+                    else:
+                        st.markdown(f"#### {label}")
+                    st.markdown(f"**{opt.option_strategy}**")
+                    st.markdown(opt.description or "—")
+                with s_col:
+                    st.metric("Score", f"{opt.composite_score}/100")
 
-                # Component Explainability Metrics Breakdown
                 sc1, sc2, sc3, sc4, sc5, sc6 = st.columns(6)
-                sc1.metric("Evidence Support", f"{opt.evidence_support_score}/10")
-                sc2.metric("Strategic Fit",    f"{opt.strategic_fit_score}/10")
-                sc3.metric("Opportunity Delta", f"{opt.opportunity_score}/10")
-                sc4.metric("Urgency Level",    f"{opt.urgency_score}/10")
-                sc5.metric("Risk Cost",        f"{opt.risk_score}/10")
-                sc6.metric("Complexity Drag",  f"{opt.complexity_score}/10")
-                st.caption(f"**Traceability String:** {opt.traceability_chain or 'N/A'}")
+                sc1.metric("Evidence", f"{opt.evidence_support_score}/10")
+                sc2.metric("Strategic fit", f"{opt.strategic_fit_score}/10")
+                sc3.metric("Opportunity", f"{opt.opportunity_score}/10")
+                sc4.metric("Urgency", f"{opt.urgency_score}/10")
+                sc5.metric("Risk", f"{opt.risk_score}/10")
+                sc6.metric("Complexity", f"{opt.complexity_score}/10")
+                st.caption(f"Logic chain: {opt.traceability_chain or '—'}")
 
-        # Final Summary Block
-        st.markdown("### 5. Final Synthesis Recommendation Summary")
+        # Final recommendation
+        st.markdown("### Recommendation")
         with st.container(border=True):
-            st.subheader("Recommended Corporate Execution Path")
-            st.success(final_brief.recommended_decision)
-            st.info(f"**Trade-Off Rationale Overview:** {final_brief.selection_rationale}")
+            st.success(final_brief.recommended_decision or "No recommendation generated.")
+            if final_brief.selection_rationale:
+                st.markdown(f"**Why this option:** {final_brief.selection_rationale}")
+            if final_brief.contradicting_evidence and final_brief.contradicting_evidence.lower() not in ["none", "none explicitly noted.", "none explicitly noted"]:
+                st.warning(f"**Watch out for:** {final_brief.contradicting_evidence}")
 
             st.divider()
             c_label, c_exp = calibrate_confidence_label(verified_facts)
-            st.markdown(f"**Calibrated Data Source Confidence Ledger:** :green[[{c_label}]]")
-            st.caption(f"_{c_exp}_")
+            st.markdown(f"**Overall confidence:** {c_label}")
+            st.caption(c_exp)
 
-        # Download Package Build
+        # Download
         st.divider()
         export_package = {
             "entity_profile":          entity.model_dump(),
@@ -1216,8 +1353,8 @@ if st.button("Run System Verification Pipeline", type="primary"):
             "reasoning_brief_package": final_brief.model_dump(),
         }
         st.download_button(
-            "⬇         ️ Download Certified Decision Briefing Package (JSON)",
+            "Download full report (JSON)",
             data=json.dumps(export_package, indent=2, ensure_ascii=False),
-            file_name=f"decision_brief_{company.replace(' ', '_').lower()}.json",
+            file_name=f"{company.replace(' ', '_').lower()}_analysis.json",
             mime="application/json"
         )
