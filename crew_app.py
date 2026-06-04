@@ -424,13 +424,27 @@ def run_enhanced_search(company: str) -> str:
         combined += "===== RELEVANT FINANCIAL PRESS & BENCHMARKS =====\n" + g_ctx
     return combined
 
-# ── NEW ── Social / Digital Signal Search
-def run_social_signal_search(company: str) -> str:
+# ── A. Marketing Campaign Intelligence Search
+def run_campaign_intelligence_search(company: str) -> str:
     queries = [
-        f'{company} instagram tiktok youtube campaign influencer partnership 2025 2026',
-        f'{company} viral social media marketing campaign consumer sentiment brand 2025',
-        f'{company} product launch press release brand positioning shift 2025 2026',
-        f'{company} creator partnership endorsement engagement trend recent',
+        f'{company} marketing campaign influencer partnership creator 2025 2026',
+        f'{company} product launch campaign viral tiktok instagram youtube 2025',
+        f'{company} brand campaign celebrity endorsement ambassador 2025 2026',
+        f'{company} advertising campaign messaging brand positioning shift 2025',
+        f'{company} viral content trending social media engagement 2025 2026',
+    ]
+    results = _ddgs_search(queries, 2)
+    if not results: return ""
+    return "\n".join([f"URL: {r.get('href')} DATA: {r.get('title')} - {r.get('body')}" for r in results])
+
+# ── B. Consumer Sentiment Search
+def run_consumer_sentiment_search(company: str) -> str:
+    queries = [
+        f'{company} consumer reviews complaints product feedback reddit 2025',
+        f'{company} customer sentiment brand perception social media comments 2025',
+        f'{company} product criticism backlash negative feedback 2025 2026',
+        f'{company} customer satisfaction feature request community discussion 2025',
+        f'"{company}" product quality review opinion users 2025',
     ]
     results = _ddgs_search(queries, 2)
     if not results: return ""
@@ -515,14 +529,44 @@ class StrategicSignal(BaseModel):
     urgency: str
     implication: str
 
-# ── NEW ── Social Signal Schema
-class SocialSignal(BaseModel):
-    platform: str                   # Instagram / TikTok / YouTube / X / LinkedIn / Press
-    signal_class: str               # Marketing Momentum / Consumer Sentiment Shift / Brand Visibility Signal / Product Launch Signal
-    description: str                # What was observed
-    engagement_indicator: str       # e.g. "Viral reach >2M", "Creator network activated", "Trending hashtag"
-    brand_implication: str          # Forward-looking strategic read
-    confidence: str                 # HIGH / MEDIUM / LOW
+# ── A. Marketing Campaign Intelligence Schema
+class CampaignIntelligence(BaseModel):
+    platform: str                       # Instagram / TikTok / YouTube / X / LinkedIn / Press / Multi-Platform
+    signal_class: str                   # Marketing Momentum / Campaign Effectiveness / Consumer Resonance / Brand Visibility
+    campaign_name: Optional[str] = None # Named campaign if identifiable (e.g. "Just Do It 2025", "Yeezy Gap Relaunch")
+    campaign_type: str                  # Influencer Partnership / Product Launch / Brand Campaign / Viral Content / Messaging Shift
+    description: str                    # Concrete observable description of what was detected
+    influencer_or_creator: Optional[str] = None  # Named creator / athlete / celebrity if identified
+    engagement_velocity: str            # ACCELERATING / STABLE / DECELERATING — directional read on momentum
+    reach_indicator: str                # Concrete reach signal: "12M views in 48h", "Top trending hashtag", "Creator network of 8M followers activated"
+    messaging_shift: Optional[str] = None  # If brand messaging changed — what changed and from what to what
+    brand_implication: str              # Forward-looking strategic read (6-18 month horizon)
+    confidence: str                     # HIGH / MEDIUM / LOW
+
+# ── B. Consumer Sentiment Layer Schema
+class ConsumerSentimentProfile(BaseModel):
+    platform: str                       # Where sentiment was observed (Reddit, TikTok comments, App Store, Twitter, YouTube comments)
+    overall_sentiment: str              # POSITIVE / NEGATIVE / MIXED / SHIFTING
+    positive_themes: List[str] = Field(default_factory=list)   # e.g. ["Quality improvement", "Strong value proposition"]
+    negative_themes: List[str] = Field(default_factory=list)   # e.g. ["Pricing complaints", "Quality decline post-rebrand"]
+    emerging_complaints: List[str] = Field(default_factory=list)  # Specific recurring complaints gaining traction
+    feature_requests: List[str] = Field(default_factory=list)  # What consumers are explicitly asking for
+    product_perception: str             # How consumers describe the product/brand right now
+    sentiment_direction: str            # IMPROVING / DECLINING / STABLE — trajectory over last 30-90 days
+    strategic_implication: str          # What this sentiment profile means for brand/revenue trajectory
+
+# ── C. Strategic Contradiction Schema
+class StrategyContradiction(BaseModel):
+    contradiction_id: str               # Short label: "PROFITABILITY-VS-DISCOUNTING", "PREMIUM-VS-VOLUME"
+    gap_severity: str                   # CRITICAL / SIGNIFICANT / MODERATE — how wide the gap is
+    stated_strategy: str                # What the CEO / leadership explicitly said (with source)
+    stated_source: str                  # Earnings Call Q3 2025 / Shareholder Letter 2025 / Analyst Day
+    observed_reality: str               # What the financial/operational data actually shows
+    supporting_evidence: str            # Specific metric that contradicts the stated strategy
+    contradiction_type: str             # MARGIN vs PRICING / GROWTH vs CAPEX / PREMIUM vs VOLUME / EFFICIENCY vs HEADCOUNT / FOCUS vs DIVERSIFICATION
+    time_in_gap: str                    # How long this gap has persisted: "2 quarters", "12 months", "Emerging"
+    market_risk: str                    # What the market will price in if gap persists
+    resolution_path: str                # What leadership would need to do to close the gap
 
 # ── NEW ── Strategic Initiative Schema
 class StrategicInitiative(BaseModel):
@@ -681,46 +725,183 @@ Facts:\n{fact_text}"""
         return [StrategicSignal(**s) for s in invoke_json(prompt, model_type="70b").get("signals", [])]
     except Exception: return []
 
-# ── NEW ── Stage A: Social Signal Intelligence Extractor
-def run_social_signal_extractor(company: str, social_context: str) -> List[SocialSignal]:
-    if not social_context or len(social_context.strip()) < 100:
+# ── A. Marketing Campaign Intelligence Extractor
+def run_campaign_intelligence_extractor(company: str, campaign_context: str) -> List[CampaignIntelligence]:
+    if not campaign_context or len(campaign_context.strip()) < 100:
         return []
-    prompt = f"""You are a Social & Digital Intelligence Analyst. Analyze the context below for {company} and extract 3-5 observable social/digital signals.
+    prompt = f"""You are a Marketing & Campaign Intelligence Analyst. Analyze the context below for {company} and extract 3-6 concrete campaign intelligence signals.
 
-SIGNAL CLASSIFICATION TAXONOMY (assign exactly one per signal):
-- Marketing Momentum: Active campaign rollout, creator partnerships, influencer activations showing brand push
-- Consumer Sentiment Shift: Engagement trends, viral content direction, user sentiment change (positive or negative)
-- Brand Visibility Signal: Press releases, major media placements, campaign reach metrics, awareness spikes
-- Product Launch Signal: New product announcements, launch campaigns, teaser content, pre-launch buzz
+SIGNAL CLASSIFICATION TAXONOMY (assign exactly one signal_class per entry):
+- Marketing Momentum: Active campaign rollout showing push — influencer activations, creator waves, paid media bursts
+- Campaign Effectiveness: Signals showing whether a campaign is converting or underperforming — reach vs engagement ratio, sentiment on campaign content
+- Consumer Resonance: Organic consumer response to brand activity — UGC, shares, community recreation of brand content
+- Brand Visibility: Press placements, media coverage, awareness spikes, share-of-voice movements
+
+CAMPAIGN TYPES (assign exactly one):
+Influencer Partnership | Product Launch | Brand Campaign | Viral Content | Messaging Shift | Creator Activation | Event Sponsorship | Collab Drop
+
+ENGAGEMENT VELOCITY:
+- ACCELERATING: Momentum building — views/engagement growing over past 7-30 days
+- STABLE: Consistent engagement, no sharp directional movement
+- DECELERATING: Engagement or reach declining from peak
 
 RULES:
-1. Each signal must reference a specific platform (Instagram, TikTok, YouTube, X, LinkedIn, Press, etc.)
-2. engagement_indicator must describe a concrete observable signal, not vague commentary
-3. brand_implication must be a forward-looking strategic read (6-18 month horizon)
-4. Only classify signals you can directly infer from the context — no invention
+1. campaign_name: only fill if a named campaign is explicitly referenced in context — otherwise null
+2. influencer_or_creator: only fill if a specific person or creator tier is referenced — otherwise null
+3. messaging_shift: only fill if there is evidence of a deliberate brand message change — describe before and after
+4. reach_indicator must be a concrete, specific signal — not "high engagement" but "trending #1 on TikTok", "12M views in 72h", "8 macro-influencers activated simultaneously"
+5. brand_implication must be a forward-looking strategic read 6-18 months out
+6. Only extract what is directly supported by context — no invention
 
 Return JSON:
 {{
-  "social_signals": [
+  "campaigns": [
     {{
       "platform": "TikTok",
       "signal_class": "Marketing Momentum",
-      "description": "Specific description of what was observed",
-      "engagement_indicator": "Concrete metric or observable reach signal",
-      "brand_implication": "Forward-looking strategic implication for brand trajectory",
+      "campaign_name": null,
+      "campaign_type": "Influencer Partnership",
+      "description": "Specific description of what was detected",
+      "influencer_or_creator": "Creator tier or named individual",
+      "engagement_velocity": "ACCELERATING",
+      "reach_indicator": "Concrete specific reach signal",
+      "messaging_shift": null,
+      "brand_implication": "Forward-looking 6-18 month strategic brand read",
       "confidence": "MEDIUM"
     }}
   ]
 }}
 
-Social & Digital Context:
-{social_context[:2500]}"""
+Campaign & Marketing Context:
+{campaign_context[:3000]}"""
     try:
         data = invoke_json(prompt, model_type="70b")
-        return [SocialSignal(**s) for s in data.get("social_signals", [])]
+        return [CampaignIntelligence(**c) for c in data.get("campaigns", [])]
     except Exception: return []
 
-# ── NEW ── Stage B: Strategic Initiative Tracker
+# ── B. Consumer Sentiment Analyzer
+def run_consumer_sentiment_analyzer(company: str, sentiment_context: str) -> List[ConsumerSentimentProfile]:
+    if not sentiment_context or len(sentiment_context.strip()) < 100:
+        return []
+    prompt = f"""You are a Consumer Sentiment Intelligence Analyst. Analyze the context below for {company} and build 2-4 consumer sentiment profiles, segmented by platform or topic cluster where distinct patterns exist.
+
+OVERALL SENTIMENT LABELS:
+- POSITIVE: Predominantly favorable consumer language and association
+- NEGATIVE: Predominantly critical, frustrated, or disappointed consumer language
+- MIXED: Significant positive and negative coexisting
+- SHIFTING: Directional change observable — specify direction in sentiment_direction
+
+SENTIMENT DIRECTION:
+- IMPROVING: Sentiment getting more positive over the observed window
+- DECLINING: Sentiment getting more negative
+- STABLE: No directional movement
+
+RULES:
+1. positive_themes: list 2-4 specific recurring positive themes consumers express (not generic — e.g. "Comfort praised in running category" not "good product")
+2. negative_themes: list 2-4 specific recurring negative themes (e.g. "Price-to-quality gap complaints in premium tier" not "expensive")
+3. emerging_complaints: list only complaints showing growing traction in recent weeks — these are early warning signals
+4. feature_requests: what consumers are explicitly asking the brand to build, fix, or bring back
+5. product_perception: how consumers currently describe the brand in their own language — use consumer voice, not corporate language
+6. strategic_implication: what this sentiment profile means for revenue, NPS, or market share trajectory
+
+Return JSON:
+{{
+  "sentiment_profiles": [
+    {{
+      "platform": "Reddit / TikTok Comments",
+      "overall_sentiment": "MIXED",
+      "positive_themes": ["Specific positive theme 1", "Specific positive theme 2"],
+      "negative_themes": ["Specific negative theme 1", "Specific negative theme 2"],
+      "emerging_complaints": ["Early warning complaint gaining traction"],
+      "feature_requests": ["Specific consumer ask 1"],
+      "product_perception": "How consumers describe the brand in their own words",
+      "sentiment_direction": "DECLINING",
+      "strategic_implication": "What this means for brand trajectory over 6-18 months"
+    }}
+  ]
+}}
+
+Consumer Sentiment Context:
+{sentiment_context[:3000]}"""
+    try:
+        data = invoke_json(prompt, model_type="70b")
+        return [ConsumerSentimentProfile(**s) for s in data.get("sentiment_profiles", [])]
+    except Exception: return []
+
+# ── C. Strategic Contradiction Detector
+def run_strategy_contradiction_detector(
+    company: str,
+    entity: EntityProfile,
+    exec_context: str,
+    verified_facts: List[ValidatedFact],
+    exec_signals: List["ExecutiveSignal"],
+) -> List[StrategyContradiction]:
+    if not exec_context or len(exec_context.strip()) < 50:
+        return []
+    fact_summary = "\n".join([f"- [{f.category}] {f.fact} ({f.date_signal})" for f in verified_facts[:8]])
+    exec_summary = "\n".join([
+        f"- [{e.gap_assessment}] Stated: {e.stated_priority} | Actual: {e.actual_performance_indicator}"
+        for e in exec_signals
+    ]) if exec_signals else "No executive signals pre-extracted."
+
+    prompt = f"""You are a Strategic Contradiction Intelligence Analyst. Your job is to find where {entity.canonical_name} leadership says one thing and the financial or operational data shows another.
+
+This is the most high-value signal in the entire report. A STRATEGY-EXECUTION GAP exposed before the market prices it in is a differentiating intelligence output.
+
+CONTRADICTION TYPES (assign exactly one):
+- MARGIN vs PRICING: Profitability focus stated but discounting / price cuts observed
+- GROWTH vs CAPEX: Growth commitment stated but capex declining or flat
+- PREMIUM vs VOLUME: Premium positioning stated but volume-chasing behavior observed
+- EFFICIENCY vs HEADCOUNT: Cost discipline stated but headcount/opex expanding
+- FOCUS vs DIVERSIFICATION: Core focus stated but capital spread across unrelated vectors
+- DEBT vs INVESTMENT: Balance sheet discipline stated but leverage increasing
+- SUSTAINABILITY vs EXECUTION: ESG/sustainability priority stated but operational data contradicts
+- INNOVATION vs SPEND: Innovation leadership stated but R&D spend declining relative to peers
+
+GAP SEVERITY:
+- CRITICAL: Gap is wide, has persisted 2+ quarters, and market has not yet fully repriced it
+- SIGNIFICANT: Gap is clear and building but may not be fully visible externally yet
+- MODERATE: Gap is emerging or narrow — worth monitoring but not yet a primary risk signal
+
+RULES:
+1. stated_strategy must be a direct paraphrase or near-quote of an actual executive statement — cite the source
+2. observed_reality must be grounded in a specific metric from the verified facts or executive signals
+3. supporting_evidence must be a specific numerical data point — not a vague statement
+4. time_in_gap: estimate duration of this gap based on available data
+5. market_risk: what analysts or investors will focus on if this gap persists another 2 quarters
+6. resolution_path: the concrete operational step that would close this gap
+7. Only flag contradictions you can directly evidence — do not speculate. Return fewer items rather than inventing contradictions.
+
+Return JSON:
+{{
+  "contradictions": [
+    {{
+      "contradiction_id": "PROFITABILITY-VS-DISCOUNTING",
+      "gap_severity": "CRITICAL",
+      "stated_strategy": "Exact paraphrase of what CEO/CFO said about this topic",
+      "stated_source": "Q3 2025 Earnings Call",
+      "observed_reality": "What the financial metrics actually show",
+      "supporting_evidence": "Specific numerical metric contradicting the stated strategy",
+      "contradiction_type": "MARGIN vs PRICING",
+      "time_in_gap": "3 quarters",
+      "market_risk": "What analysts will reprice if gap continues",
+      "resolution_path": "Concrete operational step to close this gap"
+    }}
+  ]
+}}
+
+Verified Financial Facts:
+{fact_summary}
+
+Pre-Extracted Executive Signals:
+{exec_summary}
+
+Executive Commentary Context:
+{exec_context[:3000]}"""
+    try:
+        data = invoke_json(prompt, model_type="70b")
+        return [StrategyContradiction(**c) for c in data.get("contradictions", [])]
+    except Exception: return []
 def run_strategic_initiative_tracker(company: str, entity: EntityProfile, initiative_context: str) -> List[StrategicInitiative]:
     if not initiative_context or len(initiative_context.strip()) < 100:
         return []
@@ -853,10 +1034,12 @@ def run_expert_reasoner(
     signals: List[StrategicSignal],
     evidence_sufficient: bool,
     sufficiency_message: str,
-    social_signals: List[SocialSignal] = None,
+    social_signals: List[CampaignIntelligence] = None,
     initiatives: List[StrategicInitiative] = None,
     exec_signals: List[ExecutiveSignal] = None,
     trend_risks: List[TrendRiskSignal] = None,
+    consumer_sentiment: List[ConsumerSentimentProfile] = None,
+    contradictions: List[StrategyContradiction] = None,
 ) -> Optional[DecisionIntelligenceBrief]:
 
     fact_text   = "\n".join([f"- [{f.category}] {f.fact} (Trust: {f.source_trust}, FQS: {f.fact_quality_score}/100)" for f in verified_facts])
@@ -865,9 +1048,12 @@ def run_expert_reasoner(
     # Compose enriched signal feed for the reasoning engine
     social_text = ""
     if social_signals:
-        social_text = "\n\nSOCIAL & MARKETING INTELLIGENCE SIGNALS:\n" + "\n".join([
-            f"- [{s.signal_class}] Platform: {s.platform} | {s.description} | Engagement: {s.engagement_indicator} | Implication: {s.brand_implication} | Confidence: {s.confidence}"
-            for s in social_signals
+        social_text = "\n\nMARKETING CAMPAIGN INTELLIGENCE:\n" + "\n".join([
+            f"- [{c.signal_class}] Platform: {c.platform} | Type: {c.campaign_type} | {c.description}"
+            f" | Velocity: {c.engagement_velocity} | Reach: {c.reach_indicator}"
+            + (f" | Messaging Shift: {c.messaging_shift}" if c.messaging_shift else "")
+            + f" | Implication: {c.brand_implication} | Confidence: {c.confidence}"
+            for c in social_signals
         ])
 
     initiative_text = ""
@@ -891,7 +1077,32 @@ def run_expert_reasoner(
             for t in trend_risks
         ])
 
-    enriched_signal_feed = signal_text + social_text + initiative_text + exec_text + trend_text
+    sentiment_text = ""
+    if consumer_sentiment:
+        sentiment_text = "\n\nCONSUMER SENTIMENT INTELLIGENCE:\n" + "\n".join([
+            f"- Platform: {s.platform} | Sentiment: {s.overall_sentiment} | Direction: {s.sentiment_direction}"
+            f" | Positive: {'; '.join(s.positive_themes[:2])}"
+            f" | Negative: {'; '.join(s.negative_themes[:2])}"
+            + (f" | Emerging Complaints: {'; '.join(s.emerging_complaints[:2])}" if s.emerging_complaints else "")
+            + (f" | Feature Requests: {'; '.join(s.feature_requests[:2])}" if s.feature_requests else "")
+            + f" | Perception: {s.product_perception} | Implication: {s.strategic_implication}"
+            for s in consumer_sentiment
+        ])
+
+    contradiction_text = ""
+    if contradictions:
+        contradiction_text = "\n\nSTRATEGY-EXECUTION CONTRADICTIONS (CRITICAL FLAGS):\n" + "\n".join([
+            f"- ⚠️ [{c.gap_severity}] [{c.contradiction_type}] ID: {c.contradiction_id}"
+            f" | Stated ({c.stated_source}): {c.stated_strategy}"
+            f" | Reality: {c.observed_reality}"
+            f" | Evidence: {c.supporting_evidence}"
+            f" | Gap Duration: {c.time_in_gap}"
+            f" | Market Risk: {c.market_risk}"
+            f" | Resolution: {c.resolution_path}"
+            for c in contradictions
+        ])
+
+    enriched_signal_feed = signal_text + social_text + initiative_text + exec_text + trend_text + sentiment_text + contradiction_text
 
     prompt = f"""# SYSTEM INSTRUCTIONS: FRONTIER COGNITIVE REASONING ENGINE (70B INTELLECT SUITE)
 
@@ -899,11 +1110,13 @@ def run_expert_reasoner(
 Chain every output item explicitly through this trace pathway:
 [Evidence Fact] -> [Pure Observation] -> [Deductive Root Cause Analysis] -> [Strategic Inference Layer] -> [Tailored Uniquely Framed Theme] -> [Postured Actions Matrix] -> [Anchored Decision String]
 
-CRITICAL ENRICHMENT DIRECTIVE: The enriched signal feed now contains four additional intelligence layers beyond raw financials:
-1. Social & Marketing Signals — classify as evidence-backed signals (not facts), use them to enrich inferences and themes
+CRITICAL ENRICHMENT DIRECTIVE: The enriched signal feed contains six intelligence layers beyond raw financials:
+1. Marketing Campaign Intelligence — use velocity, reach, and messaging shifts to enrich inferences and themes
 2. Strategic Initiative Intelligence — integrate into competitive landscape and option evaluation
 3. Executive Signal Intelligence — use strategy-vs-execution gaps to sharpen root cause and inference layers
-4. Trend & Risk Intelligence — use to strengthen forward-looking inferences, themes, and option urgency scores
+4. Trend & Risk Intelligence — use to strengthen forward-looking inferences and option urgency scores
+5. Consumer Sentiment Intelligence — use sentiment direction, emerging complaints, and feature requests to enrich observations and brand trajectory inferences
+6. Strategy-Execution Contradictions — these are the highest-priority signals; CRITICAL and SIGNIFICANT contradictions MUST surface directly in root_cause or inference fields
 
 ---
 
@@ -918,8 +1131,18 @@ Synthesize the definitive economic or operational driver explaining *why* the ob
 ### LAYER 3 — STRATEGIC INFERENCE LABELS
 Downstream risk or leverage statements must end with a probability tag: | CONFIRMED, | LIKELY, or | HYPOTHESIS.
 
-### GATE 4 — SOCIAL SIGNAL INTEGRATION RULE
-When social signals are present, incorporate at least one theme or inference that bridges a marketing/consumer signal to a financial or competitive implication. Label it with its signal class (e.g., Marketing Momentum, Consumer Sentiment Shift).
+### GATE 4A — CAMPAIGN INTELLIGENCE INTEGRATION RULE
+When campaign signals are present, at least one theme must be named after a campaign pattern (e.g., "Creator Wave Driving Pre-Launch Velocity Spike", "ACCELERATING TikTok Momentum Outpacing Revenue Recognition Window"). Engagement velocity direction MUST be reflected in urgency scores of related options.
+
+### GATE 4B — CONSUMER SENTIMENT INTEGRATION RULE
+When consumer sentiment profiles are present with DECLINING direction or NEGATIVE overall, this must surface in at least one inference as a downstream revenue or retention risk. Emerging complaints must inform at least one option's risk_score weighting.
+
+### GATE 4C — STRATEGY-EXECUTION CONTRADICTION INTEGRATION RULE (HIGHEST PRIORITY)
+Any CRITICAL or SIGNIFICANT strategy-execution contradiction from the feed MUST be directly referenced in:
+- At least one root_cause field (as the operative driver)
+- At least one inference field (as a | CONFIRMED or | LIKELY risk)
+- At least one strategic theme (named after the contradiction pattern, e.g., "Profitability Mandate Undermined by Structural Discounting Behavior")
+Contradictions cannot be silently omitted. If a CRITICAL gap exists, the recommended_decision MUST address it.
 
 ### GATE 5 — EXECUTIVE GAP INTEGRATION RULE
 When executive signals show an EXECUTION GAP, this must surface as a root_cause or inference in the evidence log. Do not silently discard gap findings.
@@ -1108,10 +1331,16 @@ if st.button("Run System Verification Pipeline", type="primary"):
             signals = run_signal_detector(company, verified_facts)
             time.sleep(0.3)
 
-            # ── NEW ── Stage 8A: Social Signal Intelligence
-            st.write("📱 Stage 8A: Scanning social & digital channels for emerging brand and consumer signals...")
-            social_context  = run_social_signal_search(company)
-            social_signals  = run_social_signal_extractor(company, social_context)
+            # ── A. Marketing Campaign Intelligence
+            st.write("📣 Stage 8A: Scanning campaigns, influencer activations, launches, and messaging shifts...")
+            campaign_context   = run_campaign_intelligence_search(company)
+            social_signals     = run_campaign_intelligence_extractor(company, campaign_context)
+            time.sleep(0.2)
+
+            # ── NEW ── Stage 8E: Consumer Sentiment Layer
+            st.write("💬 Stage 8E: Extracting consumer sentiment, complaints, feature requests, and product perception...")
+            sentiment_context  = run_consumer_sentiment_search(company)
+            consumer_sentiment = run_consumer_sentiment_analyzer(company, sentiment_context)
             time.sleep(0.2)
 
             # ── NEW ── Stage 8B: Strategic Initiative Tracking
@@ -1124,6 +1353,11 @@ if st.button("Run System Verification Pipeline", type="primary"):
             st.write("🎙️ Stage 8C: Analyzing executive commentary for strategy-vs-execution gap signals...")
             exec_context = run_executive_signal_search(company)
             exec_signals = run_executive_signal_analyzer(company, entity, exec_context, verified_facts)
+            time.sleep(0.2)
+
+            # ── C. Strategic Contradiction Detector
+            st.write("⚠️ Stage 8F: Running Strategic Contradiction Detector — cross-referencing stated strategy vs operational reality...")
+            contradictions = run_strategy_contradiction_detector(company, entity, exec_context, verified_facts, exec_signals)
             time.sleep(0.2)
 
             # ── NEW ── Stage 8D: Trend & Risk Detection
@@ -1140,6 +1374,8 @@ if st.button("Run System Verification Pipeline", type="primary"):
                 initiatives=initiatives,
                 exec_signals=exec_signals,
                 trend_risks=trend_risks,
+                consumer_sentiment=consumer_sentiment,
+                contradictions=contradictions,
             )
             status.update(label="Analytical Pipeline Execution Complete", state="complete")
 
@@ -1185,20 +1421,31 @@ if st.button("Run System Verification Pipeline", type="primary"):
 
         # ── NEW ── Intelligence Layer Expanders (raw signal view before reasoning output)
         if social_signals:
-            with st.expander(f"📱 Social & Digital Intelligence Layer ({len(social_signals)} signals extracted)", expanded=False):
+            with st.expander(f"📣 Marketing Campaign Intelligence ({len(social_signals)} signals extracted)", expanded=False):
+                velocity_colors = {"ACCELERATING": "🟢", "STABLE": "🟡", "DECELERATING": "🔴"}
                 signal_class_colors = {
                     "Marketing Momentum": "🟢",
-                    "Consumer Sentiment Shift": "🟡",
-                    "Brand Visibility Signal": "🔵",
-                    "Product Launch Signal": "🟠",
+                    "Campaign Effectiveness": "🔵",
+                    "Consumer Resonance": "🟠",
+                    "Brand Visibility": "🟣",
                 }
-                for ss in social_signals:
-                    icon = signal_class_colors.get(ss.signal_class, "⚪")
+                for ci in social_signals:
+                    v_icon  = velocity_colors.get(ci.engagement_velocity, "⚪")
+                    sc_icon = signal_class_colors.get(ci.signal_class, "⚪")
                     with st.container(border=True):
-                        st.markdown(f"{icon} **[{ss.signal_class}]** — Platform: `{ss.platform}` | Confidence: `{ss.confidence}`")
-                        st.markdown(f"**Observed Signal:** {ss.description}")
-                        st.markdown(f"**Engagement Indicator:** {ss.engagement_indicator}")
-                        st.info(f"**Brand Implication (6-18M):** {ss.brand_implication}")
+                        h1, h2 = st.columns([2, 1])
+                        with h1:
+                            st.markdown(f"{sc_icon} **[{ci.signal_class}]** — `{ci.platform}` | Type: `{ci.campaign_type}`"
+                                        + (f" | Campaign: **{ci.campaign_name}**" if ci.campaign_name else ""))
+                        with h2:
+                            st.markdown(f"{v_icon} Velocity: **{ci.engagement_velocity}** | Confidence: `{ci.confidence}`")
+                        st.markdown(f"**Observed:** {ci.description}")
+                        if ci.influencer_or_creator:
+                            st.markdown(f"**Creator / Influencer:** {ci.influencer_or_creator}")
+                        st.markdown(f"**Reach Signal:** {ci.reach_indicator}")
+                        if ci.messaging_shift:
+                            st.warning(f"**Messaging Shift Detected:** {ci.messaging_shift}")
+                        st.info(f"**Brand Implication (6-18M):** {ci.brand_implication}")
 
         if initiatives:
             with st.expander(f"🏗️ Strategic Initiative Intelligence Layer ({len(initiatives)} initiatives mapped)", expanded=False):
@@ -1232,6 +1479,74 @@ if st.button("Run System Verification Pipeline", type="primary"):
                         st.markdown(f"{ot_icon} **[{tr.opportunity_or_threat}]** {h_icon} `{tr.time_horizon}` — Category: `{tr.category}` — Affected: `{tr.affected_entity}`")
                         st.markdown(f"**Signal:** {tr.signal}")
                         st.info(f"**Strategic Implication:** {tr.strategic_implication}")
+
+        # ── B. Consumer Sentiment Layer Display
+        if consumer_sentiment:
+            with st.expander(f"💬 Consumer Sentiment Intelligence ({len(consumer_sentiment)} profiles | Complaints · Requests · Perception)", expanded=False):
+                sentiment_icons  = {"POSITIVE": "🟢", "NEGATIVE": "🔴", "MIXED": "🟡", "SHIFTING": "🟠"}
+                direction_icons  = {"IMPROVING": "📈", "DECLINING": "📉", "STABLE": "➡️"}
+                for sp in consumer_sentiment:
+                    s_icon = sentiment_icons.get(sp.overall_sentiment, "⚪")
+                    d_icon = direction_icons.get(sp.sentiment_direction, "")
+                    with st.container(border=True):
+                        h1, h2 = st.columns([2, 1])
+                        with h1:
+                            st.markdown(f"{s_icon} **Overall: {sp.overall_sentiment}** — Platform: `{sp.platform}`")
+                        with h2:
+                            st.markdown(f"{d_icon} Trajectory: **{sp.sentiment_direction}**")
+                        st.markdown(f"**Product Perception:** _{sp.product_perception}_")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            if sp.positive_themes:
+                                st.success("**✅ Positive Themes**\n" + "\n".join([f"• {t}" for t in sp.positive_themes]))
+                        with c2:
+                            if sp.negative_themes:
+                                st.error("**❌ Negative Themes**\n" + "\n".join([f"• {t}" for t in sp.negative_themes]))
+                        if sp.emerging_complaints:
+                            st.warning("**⚠️ Emerging Complaints (Early Warning)**\n" + "\n".join([f"• {c}" for c in sp.emerging_complaints]))
+                        if sp.feature_requests:
+                            st.markdown("**🔧 Consumer Feature Requests:**\n" + "\n".join([f"• {r}" for r in sp.feature_requests]))
+                        st.info(f"**Strategic Implication:** {sp.strategic_implication}")
+
+        # ── C. Strategic Contradiction Detector Display (prominent — expanded by default)
+        critical_contradictions  = [c for c in (contradictions or []) if c.gap_severity == "CRITICAL"]
+        all_contradictions       = contradictions or []
+        if all_contradictions:
+            expanded_flag = bool(critical_contradictions)
+            label = f"⚠️ STRATEGY-EXECUTION CONTRADICTION DETECTOR ({len(all_contradictions)} gaps found" + (f" — {len(critical_contradictions)} CRITICAL" if critical_contradictions else "") + ")"
+            with st.expander(label, expanded=expanded_flag):
+                if critical_contradictions:
+                    st.error(f"🚨 **{len(critical_contradictions)} CRITICAL strategy-execution gap(s) detected.** These are the highest-priority signals in this report — material market repricing risk if unresolved.")
+                severity_colors = {"CRITICAL": "🔴", "SIGNIFICANT": "🟠", "MODERATE": "🟡"}
+                contradiction_type_descriptions = {
+                    "MARGIN vs PRICING":        "Profitability stated / discounting observed",
+                    "GROWTH vs CAPEX":          "Growth commitment / capex declining",
+                    "PREMIUM vs VOLUME":        "Premium positioning / volume-chasing behavior",
+                    "EFFICIENCY vs HEADCOUNT":  "Cost discipline stated / opex expanding",
+                    "FOCUS vs DIVERSIFICATION": "Core focus stated / capital dispersed",
+                    "DEBT vs INVESTMENT":       "Balance sheet discipline / leverage increasing",
+                    "SUSTAINABILITY vs EXECUTION": "ESG priority stated / operations contradict",
+                    "INNOVATION vs SPEND":      "Innovation leadership stated / R&D declining",
+                }
+                for contradiction in all_contradictions:
+                    sev_icon   = severity_colors.get(contradiction.gap_severity, "⚪")
+                    type_desc  = contradiction_type_descriptions.get(contradiction.contradiction_type, contradiction.contradiction_type)
+                    with st.container(border=True):
+                        st.markdown(f"### {sev_icon} `{contradiction.gap_severity}` GAP — **{contradiction.contradiction_id}**")
+                        st.caption(f"**Type:** {contradiction.contradiction_type} · {type_desc} | **Duration:** {contradiction.time_in_gap}")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.markdown(f"**📢 Stated Strategy** _(source: {contradiction.stated_source})_")
+                            st.success(contradiction.stated_strategy)
+                        with c2:
+                            st.markdown("**📉 Observed Reality**")
+                            st.error(contradiction.observed_reality)
+                        st.markdown(f"**🔢 Supporting Evidence:** `{contradiction.supporting_evidence}`")
+                        r1, r2 = st.columns(2)
+                        with r1:
+                            st.warning(f"**📊 Market Risk if Gap Persists:** {contradiction.market_risk}")
+                        with r2:
+                            st.info(f"**🔧 Resolution Path:** {contradiction.resolution_path}")
 
         # Main Traceability Log
         st.markdown("### 1. Unified Diagnostic Track Log")
@@ -1307,13 +1622,15 @@ if st.button("Run System Verification Pipeline", type="primary"):
         # Download Package
         st.divider()
         export_package = {
-            "entity_profile":          entity.model_dump(),
-            "fact_precision_audit":    {"verified_facts": [vf.model_dump() for vf in verified_facts]},
-            "social_signal_layer":     [ss.model_dump() for ss in (social_signals or [])],
-            "strategic_initiatives":   [i.model_dump() for i in (initiatives or [])],
-            "executive_signals":       [e.model_dump() for e in (exec_signals or [])],
-            "trend_risk_signals":      [t.model_dump() for t in (trend_risks or [])],
-            "reasoning_brief_package": final_brief.model_dump(),
+            "entity_profile":            entity.model_dump(),
+            "fact_precision_audit":      {"verified_facts": [vf.model_dump() for vf in verified_facts]},
+            "campaign_intelligence":     [ci.model_dump() for ci in (social_signals or [])],
+            "consumer_sentiment":        [s.model_dump() for s in (consumer_sentiment or [])],
+            "strategy_contradictions":   [c.model_dump() for c in (contradictions or [])],
+            "strategic_initiatives":     [i.model_dump() for i in (initiatives or [])],
+            "executive_signals":         [e.model_dump() for e in (exec_signals or [])],
+            "trend_risk_signals":        [t.model_dump() for t in (trend_risks or [])],
+            "reasoning_brief_package":   final_brief.model_dump(),
         }
         st.download_button(
             "⬇️ Download Certified Decision Briefing Package (JSON)",
