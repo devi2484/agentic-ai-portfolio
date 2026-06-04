@@ -19,7 +19,7 @@ load_dotenv()
 GROQ_KEY = os.getenv("GROQ_KEY") or os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_KEY", "")
 
 # Dual-Model Routing Strategy
-llm_8b = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant", temperature=0.1)
+llm_8b  = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant",   temperature=0.1)
 llm_70b = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
 
 st.set_page_config(page_title="Strategic Intelligence Engine", page_icon="⚖️", layout="wide")
@@ -70,6 +70,12 @@ LOW_TRUST_DOMAINS = [
     "medium.com", "twitter.com", "x.com", "substack.com",
 ]
 
+# Social signal sources — treated as MEDIUM TRUST by default with signal-class boost
+SOCIAL_SIGNAL_DOMAINS = [
+    "instagram.com", "tiktok.com", "youtube.com", "x.com", "twitter.com",
+    "linkedin.com", "facebook.com",
+]
+
 TRUST_SCORE_MAP = {
     "PRIMARY SOURCE": 15,
     "HIGH TRUST":     10,
@@ -85,7 +91,6 @@ FACT_QUALITY_THRESHOLD        = 40
 OPTION_SCORE_THRESHOLD        = 25
 GENERIC_WORD_THRESHOLD        = 2
 
-# Anti-Template / Generic Language Guards
 GENERIC_PHRASES = [
     "leverage synergies", "best practices", "holistic approach", "paradigm shift",
     "move the needle", "low-hanging fruit", "boil the ocean", "think outside the box",
@@ -147,6 +152,27 @@ METRIC_GROUPS = [
     {"eps", "earnings per share"},
 ]
 
+# Social signal classification taxonomy
+SOCIAL_SIGNAL_CLASSES = [
+    "Marketing Momentum",
+    "Consumer Sentiment Shift",
+    "Brand Visibility Signal",
+    "Product Launch Signal",
+]
+
+# Strategic initiative keywords for detection
+STRATEGIC_INITIATIVE_KEYWORDS = [
+    "acquisition", "merger", "partnership", "joint venture", "investment",
+    "ai initiative", "store expansion", "geographic expansion", "restructuring",
+    "divestiture", "spinoff", "ipo", "funding round", "strategic alliance",
+]
+
+# Executive signal extraction sources
+EXECUTIVE_SIGNAL_SOURCES = [
+    "earnings call", "shareholder letter", "annual report", "interview",
+    "investor day", "agm", "conference presentation", "analyst briefing",
+]
+
 # ==========================================
 # 3. DETERMINISTIC ENGINE UTILITIES
 # ==========================================
@@ -185,13 +211,12 @@ INDUSTRY_TREND_MARKERS = [
 def check_company_relevance(fact_text: str, canonical_name: str, competitors_str: str = "") -> tuple[bool, str]:
     text_lower = fact_text.lower()
     name_lower = canonical_name.lower()
-    name_core = name_lower
+    name_core  = name_lower
     for suffix in [" limited", " ltd", " inc", " corp", " group", " pvt", " plc"]:
         name_core = name_core.replace(suffix, "")
     name_core = name_core.strip()
 
-    company_mentioned = name_core in text_lower or name_lower in text_lower
-    
+    company_mentioned    = name_core in text_lower or name_lower in text_lower
     competitor_mentioned = False
     if competitors_str and competitors_str.lower() != "unknown":
         for comp in competitors_str.split(","):
@@ -259,7 +284,7 @@ def inference_merely_rephrases(observation: str, inference: str) -> tuple[bool, 
     inf_clean = inference.split("|")[0].strip().lower()
     obs_clean = observation.lower()
     if inf_clean in obs_clean or obs_clean in inf_clean:
-         return True, "Inference mirrors observation words too closely without strategic evaluation."
+        return True, "Inference mirrors observation words too closely without strategic evaluation."
     return False, ""
 
 def check_layer_differentiation(observation: str, inference: str, theme_name: str = "") -> list[str]:
@@ -271,7 +296,7 @@ def check_layer_differentiation(observation: str, inference: str, theme_name: st
 
 def evaluate_trust(url: str, company: str = "") -> str:
     url_lower = url.lower()
-    domain = urlparse(url).netloc.lower().replace("www.", "")
+    domain    = urlparse(url).netloc.lower().replace("www.", "")
     for pattern in PRIMARY_SOURCE_URL_PATTERNS:
         if pattern in url_lower: return "PRIMARY SOURCE"
     for ps_domain in PRIMARY_SOURCE_DOMAINS:
@@ -285,12 +310,12 @@ def calculate_confidence(trust_label: str, board_relevance: int, strategic_impac
 
 def calculate_fact_quality_score(fact_text: str, source_trust: str, board_relevance: int, strategic_impact: int, date_signal: str) -> tuple[int, dict]:
     breakdown = {}
-    has_numbers  = bool(re.search(r'\d', fact_text))
-    breakdown["specificity"] = 25 if has_numbers else 10
-    breakdown["source_trust"] = 30 if "PRIMARY" in source_trust.upper() else 20
-    breakdown["board_relevance"] = int((board_relevance / 10) * 25)
+    has_numbers           = bool(re.search(r'\d', fact_text))
+    breakdown["specificity"]      = 25 if has_numbers else 10
+    breakdown["source_trust"]     = 30 if "PRIMARY" in source_trust.upper() else 20
+    breakdown["board_relevance"]  = int((board_relevance / 10) * 25)
     breakdown["strategic_impact"] = int((strategic_impact / 10) * 20)
-    breakdown["recency"] = 10 if date_signal not in ["Undated", "Unknown", ""] else 5
+    breakdown["recency"]          = 10 if date_signal not in ["Undated", "Unknown", ""] else 5
     return sum(breakdown.values()), breakdown
 
 def calculate_entity_confidence(entity) -> tuple[int, str]:
@@ -327,8 +352,8 @@ def validate_traceability_chain(brief, verified_facts: list = None) -> list[str]
 
 MOCK_KNOWLEDGE_BASE = {
     "adidas": """
-    Adidas AG Q4 2025 EPS recorded at $0.42. Revenue for the full period reached 21.4 Billion Euros, representing structured recovery. 
-    Gross profit margin expanded 120 basis points to 47.5% driven by inventory clearance and margin recovery post-Yeezy restructuring. 
+    Adidas AG Q4 2025 EPS recorded at $0.42. Revenue for the full period reached 21.4 Billion Euros, representing structured recovery.
+    Gross profit margin expanded 120 basis points to 47.5% driven by inventory clearance and margin recovery post-Yeezy restructuring.
     Rival Competitor Nike Inc reported North American footwear segment volume drop of 4% in late 2025 with total revenue flat at $51.2 Billion.
     Rival Competitor Puma SE recorded operating margin compression of 80 basis points down to 5.2% due to intense discounting pressures in wholesale channels across Western Europe.
     Rival Competitor VF Corporation reported revenue contraction of 6% in its Vans segment, dropping global gross margin to 51.0% amidst retail inventory rebalancing.
@@ -353,8 +378,8 @@ def invoke_json(prompt: str, model_type: str = "8b") -> dict:
         resp = json_capable_llm.invoke(messages)
     except Exception:
         resp = selected_llm.invoke(messages)
-        
-    text = resp.content.strip()
+
+    text  = resp.content.strip()
     match = re.search(r'\{.*\}', text, re.DOTALL)
     return json.loads(match.group(0) if match else text)
 
@@ -380,8 +405,8 @@ def run_general_search(company: str) -> str:
 
 def run_competitor_deep_search(company: str, competitors_str: str) -> str:
     if not competitors_str or competitors_str.lower() == "unknown": return ""
-    rivals = [r.strip() for r in competitors_str.split(",")[:2]]
-    queries = []
+    rivals   = [r.strip() for r in competitors_str.split(",")[:2]]
+    queries  = []
     for r in rivals:
         queries.extend([
             f'{company} vs {r} market share volume revenue metrics 2025',
@@ -398,6 +423,56 @@ def run_enhanced_search(company: str) -> str:
     if g_ctx:
         combined += "===== RELEVANT FINANCIAL PRESS & BENCHMARKS =====\n" + g_ctx
     return combined
+
+# ── NEW ── Social / Digital Signal Search
+def run_social_signal_search(company: str) -> str:
+    queries = [
+        f'{company} instagram tiktok youtube campaign influencer partnership 2025 2026',
+        f'{company} viral social media marketing campaign consumer sentiment brand 2025',
+        f'{company} product launch press release brand positioning shift 2025 2026',
+        f'{company} creator partnership endorsement engagement trend recent',
+    ]
+    results = _ddgs_search(queries, 2)
+    if not results: return ""
+    return "\n".join([f"URL: {r.get('href')} DATA: {r.get('title')} - {r.get('body')}" for r in results])
+
+# ── NEW ── Strategic Initiative Search
+def run_strategic_initiative_search(company: str, competitors_str: str) -> str:
+    queries = [
+        f'{company} acquisition merger partnership AI investment expansion 2025 2026',
+        f'{company} store expansion geographic expansion restructuring program 2025',
+        f'{company} strategic initiative capital allocation new business 2025 2026',
+    ]
+    rivals = [r.strip() for r in competitors_str.split(",")[:2]] if competitors_str and competitors_str.lower() != "unknown" else []
+    for rival in rivals:
+        queries.append(f'{rival} acquisition expansion AI initiative investment 2025')
+    results = _ddgs_search(queries, 2)
+    if not results: return ""
+    return "\n".join([f"URL: {r.get('href')} DATA: {r.get('title')} - {r.get('body')}" for r in results])
+
+# ── NEW ── Executive Signal Search
+def run_executive_signal_search(company: str) -> str:
+    queries = [
+        f'{company} CEO earnings call shareholder letter priorities 2025 2026',
+        f'{company} management commentary stated strategy execution gap 2025',
+        f'{company} CFO analyst day investor priorities outlook 2025 2026',
+        f'{company} CEO interview stated goals performance delivery 2025',
+    ]
+    results = _ddgs_search(queries, 2)
+    if not results: return ""
+    return "\n".join([f"URL: {r.get('href')} DATA: {r.get('title')} - {r.get('body')}" for r in results])
+
+# ── NEW ── Trend & Risk Search
+def run_trend_risk_search(company: str, entity_sector: str) -> str:
+    queries = [
+        f'{entity_sector} regulation technology disruption consumer trend 2025 2026',
+        f'{company} industry risk macroeconomic headwind opportunity 2025 2026',
+        f'{entity_sector} emerging threat competitive disruption trend 2025',
+        f'{company} regulatory risk AI disruption market shift 2025 2026',
+    ]
+    results = _ddgs_search(queries, 2)
+    if not results: return ""
+    return "\n".join([f"URL: {r.get('href')} DATA: {r.get('title')} - {r.get('body')}" for r in results])
 
 # ==========================================
 # 5. DATA STRUCTURE SCHEMAS (PYDANTIC)
@@ -439,6 +514,40 @@ class StrategicSignal(BaseModel):
     signal: str
     urgency: str
     implication: str
+
+# ── NEW ── Social Signal Schema
+class SocialSignal(BaseModel):
+    platform: str                   # Instagram / TikTok / YouTube / X / LinkedIn / Press
+    signal_class: str               # Marketing Momentum / Consumer Sentiment Shift / Brand Visibility Signal / Product Launch Signal
+    description: str                # What was observed
+    engagement_indicator: str       # e.g. "Viral reach >2M", "Creator network activated", "Trending hashtag"
+    brand_implication: str          # Forward-looking strategic read
+    confidence: str                 # HIGH / MEDIUM / LOW
+
+# ── NEW ── Strategic Initiative Schema
+class StrategicInitiative(BaseModel):
+    initiative_type: str            # Acquisition / Partnership / AI Initiative / Geographic Expansion / Restructuring
+    entity: str                     # Company or rival involved
+    description: str
+    competitor_comparison: str      # How rivals are positioned on same vector
+    strategic_implication: str
+
+# ── NEW ── Executive Signal Schema
+class ExecutiveSignal(BaseModel):
+    source_type: str                # Earnings Call / Shareholder Letter / Interview / Analyst Day
+    stated_priority: str            # What leadership said
+    actual_performance_indicator: str  # What the financials show
+    gap_assessment: str             # ALIGNED / PARTIAL GAP / EXECUTION GAP
+    forward_read: str               # What this gap implies for 6–24 months
+
+# ── NEW ── Trend & Risk Schema
+class TrendRiskSignal(BaseModel):
+    category: str                   # Regulatory / Technology Shift / Consumer Behavior / Macroeconomic / Industry Disruption
+    signal: str
+    affected_entity: str            # Target company or rival
+    time_horizon: str               # NEAR-TERM (0-6M) / MID-TERM (6-18M) / LONG-TERM (18M+)
+    opportunity_or_threat: str      # OPPORTUNITY / THREAT / DUAL
+    strategic_implication: str
 
 class EvidenceLog(BaseModel):
     evidence: Optional[str] = None
@@ -493,10 +602,10 @@ class DecisionIntelligenceBrief(BaseModel):
 FACT_CATEGORIES = ["Profitability", "Growth", "Competitive Threat", "Competitive Advantage", "Capital Allocation", "Strategic Shift"]
 
 def run_entity_resolution(company: str, raw_context: str) -> EntityProfile:
-    comp_lower = company.lower()
+    comp_lower    = company.lower()
     default_rivals = "Nike, Puma, VF Corporation" if "adi" in comp_lower else "BYD, Ford, General Motors" if "tes" in comp_lower else "Unknown Rivals"
-    default_ind = "Athletic Apparel and Footwear" if "adi" in comp_lower else "Automotive and Clean Energy" if "tes" in comp_lower else "Global Markets"
-    
+    default_ind    = "Athletic Apparel and Footwear" if "adi" in comp_lower else "Automotive and Clean Energy" if "tes" in comp_lower else "Global Markets"
+
     prompt = f"""Identify corporate data profile details for target: {company}.
 Return JSON object schema layout precisely:
 {{
@@ -547,10 +656,10 @@ def run_hard_gate_validation(facts: List[IntelligenceFact], canonical_name: str,
         reasons = []
         if is_non_decision_content(f.fact)[0]: reasons.append("Non-decision statement format.")
         if f.board_relevance < 5 or f.strategic_impact < 5: reasons.append("Thin impact allocation scores.")
-        
+
         confidence = calculate_confidence(f.source_trust, f.board_relevance, f.strategic_impact)
         fqs, fqs_breakdown = calculate_fact_quality_score(f.fact, f.source_trust, f.board_relevance, f.strategic_impact, f.date_signal)
-        
+
         if reasons:
             rejected.append({"fact": f.fact[:120], "reasons": reasons, "fact_quality_score": fqs})
             continue
@@ -565,26 +674,236 @@ def run_hard_gate_validation(facts: List[IntelligenceFact], canonical_name: str,
 def run_signal_detector(company: str, verified_facts: List[ValidatedFact]) -> List[StrategicSignal]:
     if not verified_facts: return []
     fact_text = "\n".join([f"[{f.category}] FACT: {f.fact}" for f in verified_facts])
-    prompt = f"""Extract 2 core macro trends from these facts. Return JSON:
+    prompt    = f"""Extract 2 core macro trends from these facts. Return JSON:
 {{ "signals": [ {{ "signal_type": "Moat Erosion", "signal": "Systemic metric variance trend", "urgency": "IMMEDIATE", "implication": "Resource reallocation plan" }} ] }}
 Facts:\n{fact_text}"""
     try:
         return [StrategicSignal(**s) for s in invoke_json(prompt, model_type="70b").get("signals", [])]
     except Exception: return []
 
+# ── NEW ── Stage A: Social Signal Intelligence Extractor
+def run_social_signal_extractor(company: str, social_context: str) -> List[SocialSignal]:
+    if not social_context or len(social_context.strip()) < 100:
+        return []
+    prompt = f"""You are a Social & Digital Intelligence Analyst. Analyze the context below for {company} and extract 3-5 observable social/digital signals.
+
+SIGNAL CLASSIFICATION TAXONOMY (assign exactly one per signal):
+- Marketing Momentum: Active campaign rollout, creator partnerships, influencer activations showing brand push
+- Consumer Sentiment Shift: Engagement trends, viral content direction, user sentiment change (positive or negative)
+- Brand Visibility Signal: Press releases, major media placements, campaign reach metrics, awareness spikes
+- Product Launch Signal: New product announcements, launch campaigns, teaser content, pre-launch buzz
+
+RULES:
+1. Each signal must reference a specific platform (Instagram, TikTok, YouTube, X, LinkedIn, Press, etc.)
+2. engagement_indicator must describe a concrete observable signal, not vague commentary
+3. brand_implication must be a forward-looking strategic read (6-18 month horizon)
+4. Only classify signals you can directly infer from the context — no invention
+
+Return JSON:
+{{
+  "social_signals": [
+    {{
+      "platform": "TikTok",
+      "signal_class": "Marketing Momentum",
+      "description": "Specific description of what was observed",
+      "engagement_indicator": "Concrete metric or observable reach signal",
+      "brand_implication": "Forward-looking strategic implication for brand trajectory",
+      "confidence": "MEDIUM"
+    }}
+  ]
+}}
+
+Social & Digital Context:
+{social_context[:2500]}"""
+    try:
+        data = invoke_json(prompt, model_type="70b")
+        return [SocialSignal(**s) for s in data.get("social_signals", [])]
+    except Exception: return []
+
+# ── NEW ── Stage B: Strategic Initiative Tracker
+def run_strategic_initiative_tracker(company: str, entity: EntityProfile, initiative_context: str) -> List[StrategicInitiative]:
+    if not initiative_context or len(initiative_context.strip()) < 100:
+        return []
+    prompt = f"""You are a Corporate Strategy Intelligence Analyst. Extract 2-4 major strategic initiatives for {entity.canonical_name} and its rivals ({entity.known_competitors}) from the context below.
+
+INITIATIVE TYPES TO DETECT:
+Acquisition, Merger, Partnership, Joint Venture, AI Initiative, Store Expansion, Geographic Expansion, Restructuring, Divestiture, Major Investment
+
+RULES:
+1. Each initiative must name a specific entity (target company or rival)
+2. competitor_comparison must contrast how rivals are positioned on the same strategic vector
+3. strategic_implication must look 6-24 months forward
+4. If no concrete initiatives are found, return fewer entries rather than inventing them
+
+Return JSON:
+{{
+  "initiatives": [
+    {{
+      "initiative_type": "AI Initiative",
+      "entity": "{entity.canonical_name}",
+      "description": "Specific description of the initiative",
+      "competitor_comparison": "How key rivals are positioned on same vector",
+      "strategic_implication": "Forward-looking 6-24 month strategic read"
+    }}
+  ]
+}}
+
+Strategic Initiative Context:
+{initiative_context[:2500]}"""
+    try:
+        data = invoke_json(prompt, model_type="70b")
+        return [StrategicInitiative(**i) for i in data.get("initiatives", [])]
+    except Exception: return []
+
+# ── NEW ── Stage C: Executive Signal Intelligence Analyzer
+def run_executive_signal_analyzer(company: str, entity: EntityProfile, exec_context: str, verified_facts: List[ValidatedFact]) -> List[ExecutiveSignal]:
+    if not exec_context or len(exec_context.strip()) < 100:
+        return []
+    fact_summary = "\n".join([f"- [{f.category}] {f.fact}" for f in verified_facts[:6]])
+    prompt = f"""You are an Executive Intelligence Analyst specializing in strategy-vs-execution gap detection for {entity.canonical_name}.
+
+TASK: Identify 2-3 executive signals by cross-referencing what leadership stated vs what financial performance shows.
+
+GAP ASSESSMENT LABELS:
+- ALIGNED: Stated priority matches observed performance trajectory
+- PARTIAL GAP: Priority stated but only partially reflected in performance
+- EXECUTION GAP: Priority stated but performance metrics contradict delivery
+
+RULES:
+1. stated_priority must be grounded in an identifiable executive statement (earnings call, letter, interview)
+2. actual_performance_indicator must reference a concrete metric from the verified facts or context
+3. forward_read must project 6-24 months of strategic implication from the gap
+
+Return JSON:
+{{
+  "executive_signals": [
+    {{
+      "source_type": "Earnings Call",
+      "stated_priority": "What leadership explicitly stated as a priority",
+      "actual_performance_indicator": "What financial metrics show in practice",
+      "gap_assessment": "ALIGNED / PARTIAL GAP / EXECUTION GAP",
+      "forward_read": "6-24 month strategic implication of this alignment or gap"
+    }}
+  ]
+}}
+
+Verified Financial Performance Facts:
+{fact_summary}
+
+Executive Commentary Context:
+{exec_context[:2500]}"""
+    try:
+        data = invoke_json(prompt, model_type="70b")
+        return [ExecutiveSignal(**e) for e in data.get("executive_signals", [])]
+    except Exception: return []
+
+# ── NEW ── Stage D: Trend & Risk Detector
+def run_trend_risk_detector(company: str, entity: EntityProfile, trend_context: str) -> List[TrendRiskSignal]:
+    if not trend_context or len(trend_context.strip()) < 100:
+        return []
+    prompt = f"""You are an Industry Trend & Risk Intelligence Analyst scanning for emerging threats and opportunities for {entity.canonical_name} in the {entity.sector} sector.
+
+SIGNAL CATEGORIES:
+- Regulatory: New laws, policy shifts, compliance requirements
+- Technology Shift: AI, automation, platform disruption, new capabilities
+- Consumer Behavior: Changing preferences, demographic shifts, channel migration
+- Macroeconomic: Interest rates, inflation, currency, trade policy
+- Industry Disruption: New entrants, business model shifts, supply chain restructuring
+
+TIME HORIZON LABELS:
+- NEAR-TERM (0-6M): Already materializing or imminent
+- MID-TERM (6-18M): Building momentum, not yet fully priced in
+- LONG-TERM (18M+): Structural shifts with slow burn trajectory
+
+TYPE LABELS:
+- OPPORTUNITY: Favorable position if acted on
+- THREAT: Adverse impact if unaddressed
+- DUAL: Could be either depending on response speed
+
+RULES:
+1. Extract 3-5 signals grounded in observable context, not speculation
+2. affected_entity must name the target company or a specific rival
+3. strategic_implication must be actionable, not generic
+
+Return JSON:
+{{
+  "trend_risk_signals": [
+    {{
+      "category": "Technology Shift",
+      "signal": "Specific description of the emerging trend or risk",
+      "affected_entity": "{entity.canonical_name}",
+      "time_horizon": "MID-TERM (6-18M)",
+      "opportunity_or_threat": "THREAT",
+      "strategic_implication": "Specific strategic response or exposure implication"
+    }}
+  ]
+}}
+
+Trend & Risk Context:
+{trend_context[:2500]}"""
+    try:
+        data = invoke_json(prompt, model_type="70b")
+        return [TrendRiskSignal(**t) for t in data.get("trend_risk_signals", [])]
+    except Exception: return []
+
 def run_expert_reasoner(
-    company: str, entity: EntityProfile, verified_facts: List[ValidatedFact],
-    signals: List[StrategicSignal], evidence_sufficient: bool, sufficiency_message: str
+    company: str,
+    entity: EntityProfile,
+    verified_facts: List[ValidatedFact],
+    signals: List[StrategicSignal],
+    evidence_sufficient: bool,
+    sufficiency_message: str,
+    social_signals: List[SocialSignal] = None,
+    initiatives: List[StrategicInitiative] = None,
+    exec_signals: List[ExecutiveSignal] = None,
+    trend_risks: List[TrendRiskSignal] = None,
 ) -> Optional[DecisionIntelligenceBrief]:
 
     fact_text   = "\n".join([f"- [{f.category}] {f.fact} (Trust: {f.source_trust}, FQS: {f.fact_quality_score}/100)" for f in verified_facts])
-    signal_text = "\n".join([f"- [{s.urgency}] {s.signal}" for s in signals])
+    signal_text = "\n".join([f"- [{s.urgency}] {s.signal}" for s in (signals or [])])
+
+    # Compose enriched signal feed for the reasoning engine
+    social_text = ""
+    if social_signals:
+        social_text = "\n\nSOCIAL & MARKETING INTELLIGENCE SIGNALS:\n" + "\n".join([
+            f"- [{s.signal_class}] Platform: {s.platform} | {s.description} | Engagement: {s.engagement_indicator} | Implication: {s.brand_implication} | Confidence: {s.confidence}"
+            for s in social_signals
+        ])
+
+    initiative_text = ""
+    if initiatives:
+        initiative_text = "\n\nSTRATEGIC INITIATIVE INTELLIGENCE:\n" + "\n".join([
+            f"- [{i.initiative_type}] Entity: {i.entity} | {i.description} | Rival Context: {i.competitor_comparison} | Implication: {i.strategic_implication}"
+            for i in initiatives
+        ])
+
+    exec_text = ""
+    if exec_signals:
+        exec_text = "\n\nEXECUTIVE SIGNAL INTELLIGENCE (STRATEGY VS EXECUTION):\n" + "\n".join([
+            f"- [{e.gap_assessment}] Source: {e.source_type} | Stated: {e.stated_priority} | Actual: {e.actual_performance_indicator} | Forward Read: {e.forward_read}"
+            for e in exec_signals
+        ])
+
+    trend_text = ""
+    if trend_risks:
+        trend_text = "\n\nTREND & RISK INTELLIGENCE:\n" + "\n".join([
+            f"- [{t.opportunity_or_threat}] [{t.time_horizon}] Category: {t.category} | {t.signal} | Affected: {t.affected_entity} | Implication: {t.strategic_implication}"
+            for t in trend_risks
+        ])
+
+    enriched_signal_feed = signal_text + social_text + initiative_text + exec_text + trend_text
 
     prompt = f"""# SYSTEM INSTRUCTIONS: FRONTIER COGNITIVE REASONING ENGINE (70B INTELLECT SUITE)
 
 ## ANALYSIS PIPELINE EXPECTATION
 Chain every output item explicitly through this trace pathway:
 [Evidence Fact] -> [Pure Observation] -> [Deductive Root Cause Analysis] -> [Strategic Inference Layer] -> [Tailored Uniquely Framed Theme] -> [Postured Actions Matrix] -> [Anchored Decision String]
+
+CRITICAL ENRICHMENT DIRECTIVE: The enriched signal feed now contains four additional intelligence layers beyond raw financials:
+1. Social & Marketing Signals — classify as evidence-backed signals (not facts), use them to enrich inferences and themes
+2. Strategic Initiative Intelligence — integrate into competitive landscape and option evaluation
+3. Executive Signal Intelligence — use strategy-vs-execution gaps to sharpen root cause and inference layers
+4. Trend & Risk Intelligence — use to strengthen forward-looking inferences, themes, and option urgency scores
 
 ---
 
@@ -597,23 +916,32 @@ Observations MUST strictly state naked historical metric changes. Prohibited fro
 Synthesize the definitive economic or operational driver explaining *why* the observation happened based directly on text logic. No placeholders.
 
 ### LAYER 3 — STRATEGIC INFERENCE LABELS
-Downstream risk or leverage statements must end with a probability tag: | CONFIRMED, | LIKELY, or | HYPOTHESIS. 
+Downstream risk or leverage statements must end with a probability tag: | CONFIRMED, | LIKELY, or | HYPOTHESIS.
+
+### GATE 4 — SOCIAL SIGNAL INTEGRATION RULE
+When social signals are present, incorporate at least one theme or inference that bridges a marketing/consumer signal to a financial or competitive implication. Label it with its signal class (e.g., Marketing Momentum, Consumer Sentiment Shift).
+
+### GATE 5 — EXECUTIVE GAP INTEGRATION RULE
+When executive signals show an EXECUTION GAP, this must surface as a root_cause or inference in the evidence log. Do not silently discard gap findings.
+
+### GATE 6 — TREND HORIZON INTEGRATION RULE
+At least one evaluated option must explicitly address a MID-TERM or LONG-TERM trend or risk signal identified in the feed.
 
 ### LAYER 4 — NO THEME TEMPLATES (STRICT CUSTOMIZATION RULE)
-Construct custom corporate pattern names matching your findings (e.g., 'Margin Recovery Post-Yeezy Restructuring', 'Pricing Pressure Overwhelming Volume Penetration Dominance').
+Construct custom corporate pattern names matching your findings (e.g., 'Margin Recovery Post-Yeezy Restructuring', 'Pricing Pressure Overwhelming Volume Penetration Dominance', 'Creator Activation Driving Pre-Launch Awareness Spike').
 
-### GATE 6 — OPTION GENERATION & SCORING (STRICT COMPANY SPECIFICITY RULE)
+### GATE 7 — OPTION GENERATION & SCORING (STRICT COMPANY SPECIFICITY RULE)
 Generate exactly 3 option blocks representing completely independent strategic directions (Conservative, Balanced, Aggressive).
-CRITICAL: Every option strategy and description MUST be hyper-customized, company-specific, and explicitly mention a verified fact or competitor milestone from the input data. 
+CRITICAL: Every option strategy and description MUST be hyper-customized, company-specific, and explicitly mention a verified fact, competitor milestone, social signal, initiative, executive gap, or trend risk from the input data.
 - DO NOT generate generic templates like "Expand into new markets", "Acquire competitors", or "Improve efficiency".
-- DO GENERATE specific, actionable responses tied to the raw metrics. Examples: 
+- DO GENERATE specific, actionable responses tied to the raw metrics. Examples:
   * "Accelerate North American share capture while Nike footwear segment volume declines 4%."
   * "Scale Energy segment investment to offset automotive gross margin compression of 210 basis points."
-  * "Expand high-performing licensed franchises to secure a 34% volume footprint across growth geographies."
+  * "Convert TikTok Marketing Momentum into conversion funnel before campaign window closes — 6-month execution window."
 
 Score each option metric strictly as an integer between 1 and 10.
 
-### LAYER 7 — CRITICAL DECISION TEMPLATE
+### LAYER 8 — CRITICAL DECISION TEMPLATE
 The recommended_decision field MUST be populated exactly as a single continuous string matching this taxonomy layout:
 "Based on Obs: [naked fact statement], Inf: [structural meaning statement | probability], Theme: [exact custom tailored pattern theme name], Opt: [Conservative/Balanced/Aggressive]: [highly specific operational execution step targeting a numeric or regional goal matching the selected option]."
 
@@ -621,8 +949,8 @@ The recommended_decision field MUST be populated exactly as a single continuous 
 Target Entity Profile Focus: {entity.canonical_name} | Rivals Ring Group: {entity.known_competitors}
 Verified High-Fidelity Factual Feed:
 {fact_text}
-Extrapolated Trends:
-{signal_text}
+Extrapolated Trends & Enriched Intelligence Signals:
+{enriched_signal_feed}
 
 OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
 {{
@@ -704,7 +1032,7 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
 }}"""
     try:
         data = invoke_json(prompt, model_type="70b")
-        
+
         if "evaluated_options" in data and isinstance(data["evaluated_options"], list):
             for opt in data["evaluated_options"]:
                 for field in ["evidence_support_score", "strategic_fit_score", "opportunity_score", "urgency_score", "risk_score", "complexity_score"]:
@@ -713,11 +1041,9 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
                         digits = ''.join(filter(str.isdigit, val.split('/')[0]))
                         opt[field] = int(digits) if digits else 5
                     else: opt[field] = int(val or 5)
-                    
+
         brief = DecisionIntelligenceBrief(**data)
-        
-        # 1. FIXED RECOMMENDATION SELECTION BUG (HIGHEST PRIORITY)
-        # Compute composite scores programmatically for each option and rank them descending
+
         scored = []
         for opt in brief.evaluated_options:
             opt.composite_score = calculate_option_score(
@@ -726,11 +1052,10 @@ OUTPUT FORMAT — RETURN RAW VALID INTELLECT JSON STRUCT OBJECT DIRECTLY:
             )
             scored.append(opt)
         brief.evaluated_options = sorted(scored, key=lambda x: x.composite_score, reverse=True)
-        
-        # Infallibly set the chosen option type to the top scoring item in the list
+
         if brief.evaluated_options:
             brief.selected_option_type = brief.evaluated_options[0].option_type
-            
+
         return brief
     except Exception as e:
         st.error(f"Defensive System Parsing Notice: {e}")
@@ -746,6 +1071,7 @@ if st.button("Run System Verification Pipeline", type="primary"):
         st.error("Target identification vector required.")
     else:
         with st.status(f"Executing Multi-Agent Strategic Intelligence Pipeline for {company}...", expanded=True) as status:
+
             st.write("📡 Stage 1: Initializing distributed cloud queries for target records...")
             raw_context = run_enhanced_search(company)
             time.sleep(0.3)
@@ -756,9 +1082,9 @@ if st.button("Run System Verification Pipeline", type="primary"):
 
             st.write(f"🎯 Stage 3: Unlocking targeted competitor cross-company benchmark queries for: {entity.known_competitors}...")
             competitor_context = run_competitor_deep_search(entity.canonical_name, entity.known_competitors)
-            
+
             full_data_lake = raw_context + "\n\n===== SKIPPED CROSS-RIVAL REPORT BENCHMARKS =====\n" + competitor_context
-            
+
             clean_token = company.lower()
             if len(full_data_lake.strip()) < 1500 or "adidas" in clean_token or "tesla" in clean_token:
                 for k, backup_text in MOCK_KNOWLEDGE_BASE.items():
@@ -782,22 +1108,55 @@ if st.button("Run System Verification Pipeline", type="primary"):
             signals = run_signal_detector(company, verified_facts)
             time.sleep(0.3)
 
-            st.write("⚖️ Stage 8: Engaging Llama 3.3 70B Strategic Reasoning Engine with traceability compliance...")
-            final_brief = run_expert_reasoner(company, entity, verified_facts, signals, evidence_sufficient, sufficiency_message)
+            # ── NEW ── Stage 8A: Social Signal Intelligence
+            st.write("📱 Stage 8A: Scanning social & digital channels for emerging brand and consumer signals...")
+            social_context  = run_social_signal_search(company)
+            social_signals  = run_social_signal_extractor(company, social_context)
+            time.sleep(0.2)
+
+            # ── NEW ── Stage 8B: Strategic Initiative Tracking
+            st.write("🏗️ Stage 8B: Mapping major strategic initiatives, investments, and competitive moves...")
+            initiative_context = run_strategic_initiative_search(company, entity.known_competitors)
+            initiatives        = run_strategic_initiative_tracker(company, entity, initiative_context)
+            time.sleep(0.2)
+
+            # ── NEW ── Stage 8C: Executive Signal Intelligence
+            st.write("🎙️ Stage 8C: Analyzing executive commentary for strategy-vs-execution gap signals...")
+            exec_context = run_executive_signal_search(company)
+            exec_signals = run_executive_signal_analyzer(company, entity, exec_context, verified_facts)
+            time.sleep(0.2)
+
+            # ── NEW ── Stage 8D: Trend & Risk Detection
+            st.write("🌐 Stage 8D: Detecting emerging macro threats, technology shifts, and industry disruptions...")
+            trend_context = run_trend_risk_search(company, entity.sector)
+            trend_risks   = run_trend_risk_detector(company, entity, trend_context)
+            time.sleep(0.2)
+
+            st.write("⚖️ Stage 9: Engaging Llama 3.3 70B Strategic Reasoning Engine with full enriched intelligence feed...")
+            final_brief = run_expert_reasoner(
+                company, entity, verified_facts, signals,
+                evidence_sufficient, sufficiency_message,
+                social_signals=social_signals,
+                initiatives=initiatives,
+                exec_signals=exec_signals,
+                trend_risks=trend_risks,
+            )
             status.update(label="Analytical Pipeline Execution Complete", state="complete")
 
         if not final_brief:
             st.error("Reasoning Core output parsing anomaly. Re-engage verification suite.")
             st.stop()
 
-        # Display Layer Output Screen
+        # ─────────────────────────────────────────────
+        # DISPLAY LAYER
+        # ─────────────────────────────────────────────
         st.divider()
         st.header(f"Decision Validation Brief — {entity.canonical_name.upper()}")
         st.caption(f"**Sector Classification:** {entity.sector} | **Industry:** {entity.industry} | **Core Geography:** {entity.primary_market}")
 
         st.success(f"✅ DATA SUFFICIENCY GATE CONFIRMED: {final_brief.reason or 'Dataset metrics satisfy criteria.'}")
 
-        # Fact Quality Explander Display
+        # Fact Quality Expander
         with st.expander(f"📊 Factual Precision Summary ({len(verified_facts)} passed / {len(rejected_facts)} filtered)", expanded=False):
             col_pass, col_fail = st.columns(2)
             with col_pass:
@@ -808,7 +1167,6 @@ if st.button("Run System Verification Pipeline", type="primary"):
                         m1, m2 = st.columns(2)
                         m1.metric("Precision Score", f"{vf.fact_quality_score}/100")
                         m2.metric("Confidence", f"{vf.confidence}%")
-
             with col_fail:
                 st.markdown("**❌ Intercepted / Low-Fidelity Records**")
                 if not rejected_facts: st.info("No records rejected by filtering parameters.")
@@ -817,7 +1175,7 @@ if st.button("Run System Verification Pipeline", type="primary"):
                         st.markdown(f"`{rf['fact']}`")
                         for r in rf["reasons"]: st.error(f"• {r}")
 
-        # Traceability Explander Display
+        # Traceability Expander
         violations = validate_traceability_chain(final_brief, verified_facts)
         if violations:
             with st.expander(f"⚠️ Traceability Exceptions Mapped ({len(violations)} anomalies)", expanded=True):
@@ -825,7 +1183,57 @@ if st.button("Run System Verification Pipeline", type="primary"):
         else:
             st.success("✅ Traceability Chain Integrity: No structural decoupling anomalies detected.")
 
-        # Main Traceability Log UI Block
+        # ── NEW ── Intelligence Layer Expanders (raw signal view before reasoning output)
+        if social_signals:
+            with st.expander(f"📱 Social & Digital Intelligence Layer ({len(social_signals)} signals extracted)", expanded=False):
+                signal_class_colors = {
+                    "Marketing Momentum": "🟢",
+                    "Consumer Sentiment Shift": "🟡",
+                    "Brand Visibility Signal": "🔵",
+                    "Product Launch Signal": "🟠",
+                }
+                for ss in social_signals:
+                    icon = signal_class_colors.get(ss.signal_class, "⚪")
+                    with st.container(border=True):
+                        st.markdown(f"{icon} **[{ss.signal_class}]** — Platform: `{ss.platform}` | Confidence: `{ss.confidence}`")
+                        st.markdown(f"**Observed Signal:** {ss.description}")
+                        st.markdown(f"**Engagement Indicator:** {ss.engagement_indicator}")
+                        st.info(f"**Brand Implication (6-18M):** {ss.brand_implication}")
+
+        if initiatives:
+            with st.expander(f"🏗️ Strategic Initiative Intelligence Layer ({len(initiatives)} initiatives mapped)", expanded=False):
+                for init in initiatives:
+                    with st.container(border=True):
+                        st.markdown(f"**[{init.initiative_type}]** — Entity: `{init.entity}`")
+                        st.markdown(f"**Initiative:** {init.description}")
+                        st.markdown(f"**Rival Context:** {init.competitor_comparison}")
+                        st.info(f"**Strategic Implication:** {init.strategic_implication}")
+
+        if exec_signals:
+            with st.expander(f"🎙️ Executive Signal Intelligence Layer ({len(exec_signals)} signals | Strategy vs Execution)", expanded=False):
+                gap_colors = {"ALIGNED": "✅", "PARTIAL GAP": "⚠️", "EXECUTION GAP": "🔴"}
+                for es in exec_signals:
+                    icon = gap_colors.get(es.gap_assessment, "⚪")
+                    with st.container(border=True):
+                        st.markdown(f"{icon} **Gap Assessment: [{es.gap_assessment}]** — Source: `{es.source_type}`")
+                        c1, c2 = st.columns(2)
+                        with c1: st.markdown(f"**Stated Priority:** {es.stated_priority}")
+                        with c2: st.markdown(f"**Actual Performance:** {es.actual_performance_indicator}")
+                        st.info(f"**Forward Read (6-24M):** {es.forward_read}")
+
+        if trend_risks:
+            with st.expander(f"🌐 Trend & Risk Intelligence Layer ({len(trend_risks)} signals | Emerging Threats & Opportunities)", expanded=False):
+                horizon_colors  = {"NEAR-TERM (0-6M)": "🔴", "MID-TERM (6-18M)": "🟡", "LONG-TERM (18M+)": "🟢"}
+                ot_colors       = {"THREAT": "🔴", "OPPORTUNITY": "🟢", "DUAL": "🟡"}
+                for tr in trend_risks:
+                    h_icon  = horizon_colors.get(tr.time_horizon, "⚪")
+                    ot_icon = ot_colors.get(tr.opportunity_or_threat, "⚪")
+                    with st.container(border=True):
+                        st.markdown(f"{ot_icon} **[{tr.opportunity_or_threat}]** {h_icon} `{tr.time_horizon}` — Category: `{tr.category}` — Affected: `{tr.affected_entity}`")
+                        st.markdown(f"**Signal:** {tr.signal}")
+                        st.info(f"**Strategic Implication:** {tr.strategic_implication}")
+
+        # Main Traceability Log
         st.markdown("### 1. Unified Diagnostic Track Log")
         for i, log in enumerate(final_brief.evidence_and_observation_log):
             with st.container(border=True):
@@ -846,7 +1254,7 @@ if st.button("Run System Verification Pipeline", type="primary"):
                 st.markdown("**Upstream Mapped Tracking Anchors:**")
                 for trace in ts.traceability: st.markdown(f"- {trace}")
 
-        # Competitive Landscape Display
+        # Competitive Landscape
         st.markdown("### 3. Structural Competitor Intelligence Matrix")
         for comp in final_brief.competitive_landscape:
             with st.container(border=True):
@@ -859,11 +1267,11 @@ if st.button("Run System Verification Pipeline", type="primary"):
                     st.error(f"📉 **Reasoned Vulnerability:** {comp.vulnerability}")
                     if comp.vulnerability_evidence: st.caption(f"**Grounding Track:** {comp.vulnerability_evidence}")
 
-        # Options Matrix Display
+        # Options Matrix
         st.markdown("### 4. Ranked Strategic Response Paths")
         for rank, opt in enumerate(final_brief.evaluated_options):
-            opt_type = opt.option_type or "Unknown"
-            color = "blue" if "Conservative" in opt_type else "orange" if "Balanced" in opt_type else "red"
+            opt_type   = opt.option_type or "Unknown"
+            color      = "blue" if "Conservative" in opt_type else "orange" if "Balanced" in opt_type else "red"
             is_selected = opt_type == final_brief.selected_option_type
             rank_header = f"🏆 TOP SCORING POSITION — {opt_type.upper()}" if is_selected else f"Strategic Option Position #{rank+1} — {opt_type.upper()}"
 
@@ -877,11 +1285,11 @@ if st.button("Run System Verification Pipeline", type="primary"):
 
                 sc1, sc2, sc3, sc4, sc5, sc6 = st.columns(6)
                 sc1.metric("Evidence Support", f"{opt.evidence_support_score}/10")
-                sc2.metric("Strategic Fit", f"{opt.strategic_fit_score}/10")
+                sc2.metric("Strategic Fit",    f"{opt.strategic_fit_score}/10")
                 sc3.metric("Opportunity Delta", f"{opt.opportunity_score}/10")
-                sc4.metric("Urgency Vector", f"{opt.urgency_score}/10")
-                sc5.metric("Risk Cost", f"{opt.risk_score}/10")
-                sc6.metric("Complexity Drag", f"{opt.complexity_score}/10")
+                sc4.metric("Urgency Vector",   f"{opt.urgency_score}/10")
+                sc5.metric("Risk Cost",        f"{opt.risk_score}/10")
+                sc6.metric("Complexity Drag",  f"{opt.complexity_score}/10")
                 st.info(f"**Traceability Resolution String:** {opt.traceability_chain or 'N/A'}")
 
         # Final Summary Block
@@ -896,12 +1304,16 @@ if st.button("Run System Verification Pipeline", type="primary"):
             st.markdown(f"**Calibrated System Core Data Confidence:** :green[[{c_label}]]")
             st.caption(f"_{c_exp}_")
 
-        # Package Compilation and Download Link
+        # Download Package
         st.divider()
         export_package = {
-            "entity_profile": entity.model_dump(),
-            "fact_precision_audit": {"verified_facts": [vf.model_dump() for vf in verified_facts]},
-            "reasoning_brief_package": final_brief.model_dump()
+            "entity_profile":          entity.model_dump(),
+            "fact_precision_audit":    {"verified_facts": [vf.model_dump() for vf in verified_facts]},
+            "social_signal_layer":     [ss.model_dump() for ss in (social_signals or [])],
+            "strategic_initiatives":   [i.model_dump() for i in (initiatives or [])],
+            "executive_signals":       [e.model_dump() for e in (exec_signals or [])],
+            "trend_risk_signals":      [t.model_dump() for t in (trend_risks or [])],
+            "reasoning_brief_package": final_brief.model_dump(),
         }
         st.download_button(
             "⬇️ Download Certified Decision Briefing Package (JSON)",
