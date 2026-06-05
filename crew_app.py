@@ -2,6 +2,7 @@ import os
 import json
 import time
 import re
+import html
 import streamlit as st
 from datetime import datetime
 from langchain_groq import ChatGroq
@@ -16,16 +17,429 @@ from urllib.parse import urlparse
 # 1. SETUP & COGNITIVE MODEL ROUTING
 # ==========================================
 load_dotenv()
+
+st.set_page_config(page_title="Lumen", page_icon="🪶", layout="wide", initial_sidebar_state="collapsed")
+
 GROQ_KEY = os.getenv("GROQ_KEY") or os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_KEY", "")
 
 # Dual-Model Routing Strategy
 llm_8b  = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant",   temperature=0.1)
 llm_70b = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
 
-st.set_page_config(page_title="Lumen", page_icon="🪶", layout="wide")
-st.title("🪶 Lumen")
-st.caption("Industry-aware strategic intelligence · Verified facts · Tailored competitive insight · Decisions you can trace")
-st.divider()
+# ==========================================
+#  CLAUDE-LIKE DESIGN SYSTEM
+# ==========================================
+# st.html (not st.markdown) — Streamlit 1.58+ injects <style> globally via the event container.
+st.html("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;450;500;600&display=swap');
+:root{
+  --bg:#F5F1EA;            /* warm paper */
+  --surface:#FBF9F5;       /* card surface */
+  --surface-2:#FFFFFF;
+  --ink:#2A2520;           /* near-black warm */
+  --ink-soft:#6B6155;      /* muted text */
+  --line:#E7E0D5;          /* hairline */
+  --line-strong:#D8CFC0;
+  --clay:#C9613F;          /* Claude clay accent */
+  --clay-soft:#E8D9CF;
+  --clay-tint:#F4E9E2;
+  --sage:#5B6B5A;
+  --gold:#B0883A;
+  --good:#5C7A57;
+  --good-tint:#EAF0E6;
+  --warn:#B5722E;
+  --warn-tint:#F6ECDD;
+  --bad:#B0453A;
+  --bad-tint:#F6E4E0;
+  --radius:14px;
+  --radius-sm:10px;
+  --shadow:0 1px 2px rgba(42,37,32,.04), 0 4px 16px rgba(42,37,32,.05);
+}
+
+.stApp, [data-testid="stMainMenuPopover"]{
+  --bg:light-dark(#F5F1EA,#111318);
+  --surface:light-dark(#FBF9F5,#171A21);
+  --surface-2:light-dark(#FFFFFF,#1D212A);
+  --ink:light-dark(#2A2520,#F6F1E8);
+  --ink-soft:light-dark(#6B6155,#B9B0A4);
+  --line:light-dark(#E7E0D5,#2B3038);
+  --line-strong:light-dark(#D8CFC0,#3A414C);
+  --clay:light-dark(#C9613F,#E07A52);
+  --clay-soft:light-dark(#E8D9CF,#6B3D31);
+  --clay-tint:light-dark(#F4E9E2,#2A1E1A);
+  --sage:light-dark(#5B6B5A,#8DA086);
+  --gold:light-dark(#B0883A,#D1AA55);
+  --good:light-dark(#5C7A57,#9CBE8E);
+  --good-tint:light-dark(#EAF0E6,#172416);
+  --warn:light-dark(#B5722E,#D69A4B);
+  --warn-tint:light-dark(#F6ECDD,#2B2115);
+  --bad:light-dark(#B0453A,#D57567);
+  --bad-tint:light-dark(#F6E4E0,#2B1717);
+  --shadow:0 1px 2px rgba(42,37,32,.04), 0 4px 16px rgba(42,37,32,.05);
+}
+
+/* ---- base canvas ---- */
+.stApp{ background:var(--bg); }
+.block-container{ max-width:1080px; padding-top:4.8rem; padding-bottom:5rem; }
+html, body, [class*="css"]{ font-family:'Inter',system-ui,sans-serif; color:var(--ink); }
+
+/* keep header/toolbar — theme toggle, print, rerun live in the ⋮ menu */
+header[data-testid="stHeader"]{
+  background:var(--bg);
+  border-bottom:1px solid var(--line);
+}
+[data-testid="stToolbar"], [data-testid="stToolbar"] *,
+[data-testid="stMainMenuButton"], [data-testid="stMainMenuButton"] *{
+  color:var(--ink) !important;
+}
+[data-testid="stMainMenuPopover"],
+[data-testid="stMainMenuPopover"] > div,
+[data-testid="stMainMenuPopover"] > div > div{
+  background:var(--surface-2) !important;
+  color:var(--ink) !important;
+}
+[data-testid="stMainMenuPopover"]{
+  border:1px solid var(--line-strong) !important;
+  border-radius:var(--radius) !important;
+  box-shadow:var(--shadow) !important;
+  overflow:hidden !important;
+}
+[data-testid="stMainMenuList"],
+[data-testid="stMainMenuPopover"] [role="menu"]{
+  background:var(--surface-2) !important;
+  color:var(--ink) !important;
+}
+[data-testid="stMainMenuPopover"] button,
+[data-testid="stMainMenuPopover"] span,
+[data-testid="stMainMenuPopover"] div,
+[data-testid="stMainMenuPopover"] p{
+  color:var(--ink) !important;
+}
+[data-testid="stMainMenuPopover"] svg{
+  color:var(--ink) !important;
+  fill:currentColor !important;
+}
+[data-testid="stMainMenuPopover"] button:hover,
+[data-testid="stMainMenuPopover"] button[aria-checked="true"]{
+  background:var(--clay-tint) !important;
+  color:var(--ink) !important;
+}
+[data-testid="stMainMenuItem-autoRerun"] > div{
+  background:var(--line-strong) !important;
+  border:1px solid var(--line-strong) !important;
+  box-sizing:border-box !important;
+}
+[data-testid="stMainMenuItem-autoRerun"] > div > div{
+  background:var(--surface-2) !important;
+  box-shadow:0 1px 3px rgba(0,0,0,.28) !important;
+}
+[data-testid="stMainMenuItem-autoRerun"][aria-checked="true"] > div{
+  background:var(--clay) !important;
+  border-color:var(--clay) !important;
+}
+footer{ visibility:hidden; }
+
+/* ---- typography ---- */
+h1,h2,h3,h4{ font-family:'Fraunces',Georgia,serif !important; color:var(--ink); letter-spacing:-.01em; font-weight:500; }
+h2{ font-size:1.55rem !important; margin-top:.4rem !important; }
+h3{ font-size:1.18rem !important; }
+p, li, span, label{ color:var(--ink); }
+
+/* ---- hero ---- */
+.lumen-hero{
+  display:flex; align-items:center; gap:16px;
+  padding:8px 2px 4px 2px; margin-bottom:6px;
+}
+.lumen-mark{
+  width:46px; height:46px; border-radius:13px;
+  background:linear-gradient(150deg,var(--clay),#A84B2E);
+  display:flex; align-items:center; justify-content:center;
+  font-size:24px; box-shadow:0 6px 18px rgba(201,97,63,.28);
+  flex:0 0 auto;
+}
+.lumen-title{ font-family:'Fraunces',serif; font-size:2.1rem; font-weight:600; line-height:1; color:var(--ink); }
+.lumen-sub{ color:var(--ink-soft); font-size:.92rem; margin-top:6px; letter-spacing:.01em; }
+.lumen-rule{ height:1px; background:linear-gradient(90deg,var(--line-strong),transparent); border:0; margin:18px 0 26px; }
+
+/* ---- inputs ---- */
+.stTextInput [data-baseweb="input"]{
+  background:var(--surface-2) !important;
+  border:1px solid var(--line-strong) !important;
+  border-radius:12px !important;
+  box-shadow:none !important;
+}
+.stTextInput [data-baseweb="input"]:focus-within{
+  border-color:var(--clay) !important;
+  box-shadow:0 0 0 3px var(--clay-tint) !important;
+}
+.stTextInput [data-baseweb="base-input"]{
+  background:var(--surface-2) !important;
+  border-radius:12px !important;
+}
+.stTextInput input{
+  background:var(--surface-2); border:0 !important;
+  border-radius:12px; padding:14px 16px; font-size:1rem; color:var(--ink);
+  box-shadow:none !important; outline:none !important; transition:border-color .15s, box-shadow .15s;
+}
+.stTextInput input:focus{
+  box-shadow:none !important; outline:none !important;
+}
+.stTextInput input::placeholder{
+  color:var(--ink-soft) !important;
+  opacity:.68 !important;
+}
+[data-testid="InputInstructions"]{
+  display:none !important;
+}
+.stTextInput label{ font-weight:500; color:var(--ink-soft); font-size:.85rem; }
+
+/* ---- buttons ---- */
+.stButton button{
+  background:var(--clay); color:#fff; border:0; border-radius:11px;
+  padding:11px 26px; font-weight:550; font-size:.95rem; letter-spacing:.01em;
+  box-shadow:0 4px 14px rgba(201,97,63,.24); transition:transform .12s, box-shadow .12s, background .15s;
+}
+.stButton button:hover{ background:#B5532F; transform:translateY(-1px); box-shadow:0 6px 18px rgba(201,97,63,.30); }
+.stButton button:active{ transform:translateY(0); }
+.stDownloadButton button{
+  background:var(--surface-2); color:var(--ink); border:1px solid var(--line-strong);
+  border-radius:11px; font-weight:500; box-shadow:none;
+}
+.stDownloadButton button:hover{ border-color:var(--clay); color:var(--clay); }
+
+/* ---- cards (bordered containers) ---- */
+[data-testid="stVerticalBlockBorderWrapper"]{
+  background:var(--surface); border:1px solid var(--line) !important;
+  border-radius:var(--radius) !important; box-shadow:var(--shadow);
+  transition:border-color .15s, box-shadow .15s;
+}
+[data-testid="stVerticalBlockBorderWrapper"]:hover{ border-color:var(--line-strong) !important; }
+
+/* ---- metrics ---- */
+[data-testid="stMetric"]{
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius-sm); padding:14px 16px; box-shadow:var(--shadow);
+}
+[data-testid="stMetricLabel"]{ color:var(--ink-soft); font-size:.72rem !important; text-transform:uppercase; letter-spacing:.06em; font-weight:600; }
+[data-testid="stMetricValue"]{ font-family:'Fraunces',serif; font-size:1.4rem !important; color:var(--ink); font-weight:500; }
+
+/* ---- alerts: soften to match palette ---- */
+[data-testid="stAlert"]{ border-radius:var(--radius-sm); border:1px solid var(--line); font-size:.9rem; }
+[data-baseweb="notification"]{ border-radius:var(--radius-sm) !important; }
+
+/* ---- expander ---- */
+[data-testid="stExpander"]{ border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--surface); box-shadow:var(--shadow); }
+[data-testid="stExpander"] summary{ font-weight:500; color:var(--ink); font-size:.92rem; }
+[data-testid="stExpander"] summary:hover{ color:var(--clay); }
+
+/* ---- captions ---- */
+[data-testid="stCaptionContainer"], .stCaption{ color:var(--ink-soft) !important; font-size:.8rem; }
+
+/* ---- status widget (fix "Analysing…" black-on-black while running) ---- */
+[data-testid="stStatusWidget"], [data-testid="stStatus"]{
+  background:var(--surface) !important; border:1px solid var(--line) !important;
+  border-radius:var(--radius) !important; box-shadow:var(--shadow);
+  color:var(--ink) !important;
+}
+[data-testid="stStatus"] > label,
+[data-testid="stStatus"] summary,
+[data-testid="stStatus"] [data-testid="stStatusLabel"],
+[data-testid="stStatus"] [data-testid="collapsedControl"],
+[data-testid="stStatus"] [role="button"]{
+  background:var(--surface) !important;
+  color:var(--ink) !important;
+}
+[data-testid="stStatus"] p,
+[data-testid="stStatus"] span,
+[data-testid="stStatus"] label,
+[data-testid="stStatus"] [data-testid="stMarkdownContainer"],
+[data-testid="stStatus"] [data-testid="stText"]{
+  color:var(--ink) !important;
+}
+[data-testid="stStatusWidget"] *,
+[data-testid="stStatus"] *{
+  color:var(--ink) !important;
+}
+[data-testid="stStatusWidget"] svg,
+[data-testid="stStatus"] svg{
+  color:var(--clay) !important;
+  fill:currentColor !important;
+}
+
+/* ---- divider ---- */
+hr{ border-color:var(--line) !important; }
+
+/* ---- custom section eyebrow + reusable chips ---- */
+.lumen-section{ display:flex; align-items:baseline; gap:12px; margin:30px 0 12px; }
+.lumen-section .num{ font-family:'Fraunces',serif; font-size:.85rem; color:var(--clay); font-weight:600; letter-spacing:.04em; }
+.lumen-section .ttl{ font-family:'Fraunces',serif; font-size:1.28rem; font-weight:500; color:var(--ink); }
+.lumen-section .desc{ color:var(--ink-soft); font-size:.82rem; margin-left:auto; }
+
+.chip{ display:inline-block; padding:3px 10px; border-radius:999px; font-size:.72rem;
+  font-weight:600; letter-spacing:.02em; border:1px solid transparent; }
+.chip-clay{ background:var(--clay-tint); color:var(--clay); border-color:var(--clay-soft); }
+.chip-good{ background:var(--good-tint); color:var(--good); }
+.chip-warn{ background:var(--warn-tint); color:var(--warn); }
+.chip-bad{ background:var(--bad-tint); color:var(--bad); }
+.chip-neutral{ background:#EFE9DF; color:var(--ink-soft); }
+
+.kpi-row{ display:flex; gap:14px; flex-wrap:wrap; }
+.kpi{ flex:1; min-width:140px; background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius-sm); padding:16px 18px; box-shadow:var(--shadow); }
+.kpi .k-label{ color:var(--ink-soft); font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; font-weight:600; }
+.kpi .k-value{ font-family:'Fraunces',serif; font-size:1.5rem; color:var(--ink); margin-top:6px; }
+.kpi .k-dot{ display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:7px; vertical-align:middle; }
+
+.company-head{ font-family:'Fraunces',serif; font-size:2rem; font-weight:600; color:var(--ink); line-height:1.1; }
+.company-meta{ color:var(--ink-soft); font-size:.9rem; margin-top:6px; }
+
+.signal-card, .leadership-card, .comparison-card, .recommendation-card{
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius); box-shadow:var(--shadow);
+  padding:18px 20px; margin:14px 0;
+}
+.signal-topline, .leadership-head, .comparison-head{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+.signal-title, .leadership-status, .comparison-title{ font-weight:650; color:var(--ink); }
+.signal-platform, .leadership-source, .comparison-subtle{ color:var(--ink-soft); }
+.signal-confidence{
+  margin-left:auto; padding:3px 9px; border-radius:999px;
+  background:var(--clay-tint); color:var(--clay);
+  border:1px solid var(--clay-soft); font-size:.72rem; font-weight:700; letter-spacing:.04em;
+}
+.signal-confidence.opportunity{ background:var(--good-tint); border-color:var(--good); color:var(--good); }
+.signal-confidence.threat{ background:var(--bad-tint); border-color:var(--bad); color:var(--bad); }
+.signal-desc{ margin:0 0 14px; color:var(--ink); line-height:1.55; }
+.signal-meta{
+  display:flex; gap:8px; align-items:baseline; margin-bottom:14px;
+  color:var(--ink-soft); font-size:.86rem;
+}
+.signal-meta .label, .signal-readout .label, .leadership-label, .comparison-label{
+  text-transform:uppercase; letter-spacing:.06em; font-size:.68rem; font-weight:700; color:var(--ink-soft);
+}
+.signal-readout{
+  background:var(--clay-tint); border:1px solid var(--clay-soft);
+  border-radius:var(--radius-sm); padding:13px 15px;
+}
+.signal-readout p{ margin:.35rem 0 0; line-height:1.5; }
+
+.leadership-status{
+  padding:3px 9px; border-radius:999px; border:1px solid var(--line-strong);
+  background:var(--surface-2); font-size:.75rem; letter-spacing:.03em;
+}
+.leadership-status.gap{ background:var(--bad-tint); border-color:var(--bad); color:var(--bad); }
+.leadership-status.partial{ background:var(--warn-tint); border-color:var(--warn); color:var(--warn); }
+.leadership-status.aligned{ background:var(--good-tint); border-color:var(--good); color:var(--good); }
+.leadership-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:0;
+  border:1px solid var(--line); border-radius:var(--radius-sm); overflow:hidden;
+  background:var(--surface-2);
+}
+.leadership-pane{ padding:15px 18px; }
+.leadership-pane + .leadership-pane{ border-left:1px solid var(--line-strong); }
+.leadership-pane p{ margin:.55rem 0 0; line-height:1.55; }
+.leadership-forward{
+  margin-top:14px; border-radius:var(--radius-sm); padding:13px 15px;
+  border:1px solid var(--line); line-height:1.5;
+}
+.leadership-forward.warn{ background:var(--warn-tint); border-color:var(--warn); color:var(--ink); }
+.leadership-forward.info{ background:var(--good-tint); border-color:var(--good); color:var(--ink); }
+.comparison-badge{
+  padding:3px 9px; border-radius:999px; border:1px solid var(--clay-soft);
+  background:var(--clay-tint); color:var(--clay);
+  font-size:.7rem; font-weight:750; letter-spacing:.05em; text-transform:uppercase;
+}
+.comparison-observation{
+  background:var(--surface-2); border:1px solid var(--line);
+  border-radius:var(--radius-sm); padding:13px 15px; margin-bottom:14px;
+}
+.comparison-observation p{ margin:.35rem 0 0; line-height:1.55; }
+.comparison-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:0;
+  border:1px solid var(--line); border-radius:var(--radius-sm); overflow:hidden;
+  background:var(--surface-2);
+}
+.comparison-pane{ padding:15px 18px; }
+.comparison-pane + .comparison-pane{ border-left:1px solid var(--line-strong); }
+.comparison-pane p{ margin:.55rem 0 0; line-height:1.55; }
+.comparison-evidence{ margin-top:10px; color:var(--ink-soft); font-size:.82rem; line-height:1.45; }
+.comparison-label.edge{ color:var(--good); }
+.comparison-label.exposure{ color:var(--bad); }
+.comparison-trace{
+  margin-top:12px; color:var(--ink-soft); font-size:.82rem; line-height:1.45;
+}
+.recommendation-hero{
+  background:var(--good-tint); border:1px solid var(--good);
+  border-radius:var(--radius-sm); padding:16px 18px; margin-bottom:14px;
+}
+.recommendation-hero p, .recommendation-panel p{ margin:.45rem 0 0; line-height:1.6; }
+.recommendation-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px;
+}
+.recommendation-grid.single{ grid-template-columns:1fr; }
+.recommendation-panel{
+  background:var(--surface-2); border:1px solid var(--line);
+  border-radius:var(--radius-sm); padding:15px 17px;
+}
+.recommendation-panel.watchout{
+  background:var(--warn-tint); border-color:var(--warn);
+}
+.recommendation-footer{
+  margin-top:16px; padding-top:14px; border-top:1px solid var(--line);
+  display:flex; gap:12px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap;
+}
+.recommendation-confidence{ display:flex; align-items:center; gap:10px; }
+.recommendation-confidence .score{
+  padding:3px 9px; border-radius:999px; background:var(--good-tint);
+  border:1px solid var(--good); color:var(--good);
+  font-size:.7rem; font-weight:750; letter-spacing:.05em;
+}
+.recommendation-explainer{ color:var(--ink-soft); font-size:.84rem; line-height:1.45; max-width:620px; }
+@media (max-width: 760px){
+  .leadership-grid, .comparison-grid, .recommendation-grid{ grid-template-columns:1fr; }
+  .leadership-pane + .leadership-pane, .comparison-pane + .comparison-pane{ border-left:0; border-top:1px solid var(--line-strong); }
+  .signal-confidence{ margin-left:0; }
+}
+</style>
+""")
+
+st.markdown("""
+<div class="lumen-hero">
+  <div class="lumen-mark">🪶</div>
+  <div>
+    <div class="lumen-title">Lumen</div>
+    <div class="lumen-sub">Industry-aware strategic intelligence · Verified facts · Tailored competitive insight</div>
+  </div>
+</div>
+<hr class="lumen-rule"/>
+""", unsafe_allow_html=True)
+
+
+def section_header(num: str, title: str, desc: str = ""):
+    """Render a consistent serif section header with an eyebrow number."""
+    desc_html = f'<span class="desc">{desc}</span>' if desc else ""
+    st.markdown(
+        f'<div class="lumen-section"><span class="num">{num}</span>'
+        f'<span class="ttl">{title}</span>{desc_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def chip(text: str, kind: str = "neutral") -> str:
+    """Return an inline HTML pill/badge."""
+    return f'<span class="chip chip-{kind}">{text}</span>'
+
+
+def md_text(value, fallback: str = "—") -> str:
+    """Escape generated text so dollar amounts are not rendered as Markdown math."""
+    text = str(value) if value not in [None, ""] else fallback
+    return re.sub(r"(?<!\\)\$", r"\\$", text)
+
+
+def html_text(value, fallback: str = "—") -> str:
+    """Escape generated text before inserting it into custom HTML cards."""
+    text = str(value) if value not in [None, ""] else fallback
+    return html.escape(text, quote=True)
 
 # ==========================================
 # 2. TRUST & SCORING CONFIGURATIONS
@@ -1225,7 +1639,8 @@ Return a raw JSON object only:
 # ==========================================
 # 7. USER INTERFACE GENERATION & EXECUTION
 # ==========================================
-company = st.text_input("Company name:", placeholder="e.g. Zomato, Reliance Industries, Tesla, Adidas...")
+company = st.text_input("Company name", placeholder="e.g. Zomato, Reliance Industries, Tesla, Adidas…")
+st.caption("Enter any public company. Lumen resolves its sector, peers, and verified financials, then builds a traceable brief.")
 
 if st.button("Run Analysis", type="primary"):
     if not company:
@@ -1302,186 +1717,320 @@ if st.button("Run Analysis", type="primary"):
         # ─────────────────────────────────────────────
         # DISPLAY
         # ─────────────────────────────────────────────
-        st.divider()
-        st.header(entity.canonical_name)
-        st.caption(f"{entity.sector} · {entity.industry} · {entity.primary_market}")
+        st.markdown('<hr class="lumen-rule"/>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="company-head">{entity.canonical_name}</div>'
+            f'<div class="company-meta">{entity.sector} &nbsp;·&nbsp; {entity.industry} &nbsp;·&nbsp; {entity.primary_market}</div>',
+            unsafe_allow_html=True,
+        )
+        st.write("")
 
-        # Top-level quality indicators
-        v_col1, v_col2, v_col3, v_col4 = st.columns(4)
-        v_col1.metric("Data quality", "Strong" if len(verified_facts) >= 3 else "Partial")
-        v_col2.metric("Cross-source check", "Passed" if evidence_sufficient else "Incomplete")
-        v_col3.metric("Competitor data", "Found" if final_brief.competitive_landscape else "Limited")
-        v_col4.metric("Traceability", "Clean" if not validate_traceability_chain(final_brief, verified_facts) else "Review needed")
+        # Top-level quality indicators (custom KPI row)
+        dq_strong   = len(verified_facts) >= 3
+        trace_clean = not validate_traceability_chain(final_brief, verified_facts)
+        comp_found  = bool(final_brief.competitive_landscape)
 
-        st.success(final_brief.reason or "Sufficient data found across all analysis layers.")
-        st.divider()
+        def _dot(ok): return "var(--good)" if ok else "var(--warn)"
+        kpis = [
+            ("Data quality",      "Strong" if dq_strong else "Partial",      dq_strong),
+            ("Cross-source check","Passed" if evidence_sufficient else "Incomplete", evidence_sufficient),
+            ("Competitor data",   "Found" if comp_found else "Limited",       comp_found),
+            ("Traceability",      "Clean" if trace_clean else "Review",       trace_clean),
+        ]
+        kpi_html = '<div class="kpi-row">' + "".join(
+            f'<div class="kpi"><div class="k-label">{label}</div>'
+            f'<div class="k-value"><span class="k-dot" style="background:{_dot(ok)}"></span>{value}</div></div>'
+            for label, value, ok in kpis
+        ) + "</div>"
+        st.markdown(kpi_html, unsafe_allow_html=True)
+        st.write("")
+
+        st.success(md_text(final_brief.reason, "Sufficient data found across all analysis layers."))
+        st.markdown('<hr class="lumen-rule"/>', unsafe_allow_html=True)
 
         # Data reviewed
         with st.expander(f"Data reviewed — {len(verified_facts)} facts used, {len(rejected_facts)} filtered out", expanded=False):
-            col_pass, col_fail = st.columns(2)
-            with col_pass:
+            def render_included_facts():
                 st.markdown("**Included**")
                 for vf in verified_facts:
                     with st.container(border=True):
-                        st.markdown(f"**{vf.category}** — {vf.fact}")
+                        st.markdown(f"**{md_text(vf.category, 'Uncategorized')}** — {md_text(vf.fact)}")
                         m1, m2 = st.columns(2)
                         m1.metric("Quality score", f"{vf.fact_quality_score}/100")
                         m2.metric("Confidence", f"{vf.confidence}%")
-            with col_fail:
-                st.markdown("**Filtered out**")
-                if not rejected_facts:
-                    st.info("All data points passed quality checks.")
-                for rf in rejected_facts:
-                    with st.container(border=True):
-                        st.markdown(f"`{rf['fact']}`")
-                        for r in rf["reasons"]: st.warning(f"· {r}")
+
+            if rejected_facts:
+                col_pass, col_fail = st.columns(2)
+                with col_pass:
+                    render_included_facts()
+                with col_fail:
+                    st.markdown("**Filtered out**")
+                    for rf in rejected_facts:
+                        with st.container(border=True):
+                            st.markdown(f"`{md_text(rf['fact'])}`")
+                            for r in rf["reasons"]: st.warning(f"· {md_text(r)}")
+            else:
+                render_included_facts()
+                st.info("All data points passed quality checks.")
 
         # Traceability check
         violations = validate_traceability_chain(final_brief, verified_facts)
         if violations:
             with st.expander(f"Traceability issues found ({len(violations)})", expanded=True):
-                for v in violations: st.warning(f"· {v}")
+                for v in violations: st.warning(f"· {md_text(v)}")
 
         # Supporting layers
         if social_signals:
             with st.expander(f"Brand & campaign activity — {len(social_signals)} signals", expanded=False):
                 for ss in social_signals:
-                    with st.container(border=True):
-                        st.markdown(f"**{ss.signal_class}** · {ss.platform} · Confidence: {ss.confidence}")
-                        st.markdown(ss.description)
-                        st.caption(f"Engagement: {ss.engagement_indicator}")
-                        st.info(f"What this may mean: {ss.brand_implication}")
+                    st.markdown(
+                        f"""
+<div class="signal-card">
+  <div class="signal-topline">
+    <span class="signal-title">{html_text(ss.signal_class)}</span>
+    <span class="signal-platform">{html_text(ss.platform)}</span>
+    <span class="signal-confidence">{html_text(ss.confidence)}</span>
+  </div>
+  <p class="signal-desc">{html_text(ss.description)}</p>
+  <div class="signal-meta"><span class="label">Engagement</span><span>{html_text(ss.engagement_indicator)}</span></div>
+  <div class="signal-readout">
+    <div class="label">What this may mean</div>
+    <p>{html_text(ss.brand_implication)}</p>
+  </div>
+</div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
         if initiatives:
             with st.expander(f"Strategic moves — {len(initiatives)} tracked", expanded=False):
                 for init in initiatives:
-                    with st.container(border=True):
-                        st.markdown(f"**{init.initiative_type}** · {init.entity}")
-                        st.markdown(init.description)
-                        st.caption(f"Competitor context: {init.competitor_comparison}")
-                        st.info(f"Expected impact: {init.strategic_implication}")
+                    st.markdown(
+                        f"""
+<div class="signal-card">
+  <div class="signal-topline">
+    <span class="signal-title">{html_text(init.initiative_type)}</span>
+    <span class="signal-platform">{html_text(init.entity)}</span>
+    <span class="signal-confidence">Strategic move</span>
+  </div>
+  <p class="signal-desc">{html_text(init.description)}</p>
+  <div class="signal-meta"><span class="label">Competitor context</span><span>{html_text(init.competitor_comparison)}</span></div>
+  <div class="signal-readout">
+    <div class="label">Expected impact</div>
+    <p>{html_text(init.strategic_implication)}</p>
+  </div>
+</div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
         if exec_signals:
             with st.expander(f"What leadership said vs. what the data shows — {len(exec_signals)} items", expanded=False):
                 gap_labels = {"ALIGNED": "Aligned", "PARTIAL GAP": "Partial gap", "EXECUTION GAP": "Gap"}
                 for es in exec_signals:
                     label = gap_labels.get(es.gap_assessment, es.gap_assessment)
-                    with st.container(border=True):
-                        st.markdown(f"**{label}** · Source: {es.source_type}")
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            st.markdown("**What they said**")
-                            st.markdown(es.stated_priority)
-                        with c2:
-                            st.markdown("**What the numbers show**")
-                            st.markdown(es.actual_performance_indicator)
-                        if es.gap_assessment == "EXECUTION GAP":
-                            st.warning(f"Forward read: {es.forward_read}")
-                        else:
-                            st.info(f"Forward read: {es.forward_read}")
+                    label_key = (label or "").lower()
+                    status_class = "aligned" if "aligned" in label_key else "partial" if "partial" in label_key else "gap"
+                    forward_class = "warn" if es.gap_assessment == "EXECUTION GAP" else "info"
+                    st.markdown(
+                        f"""
+<div class="leadership-card">
+  <div class="leadership-head">
+    <span class="leadership-status {status_class}">{html_text(label)}</span>
+    <span class="leadership-source">Source: {html_text(es.source_type)}</span>
+  </div>
+  <div class="leadership-grid">
+    <div class="leadership-pane">
+      <div class="leadership-label">What they said</div>
+      <p>{html_text(es.stated_priority)}</p>
+    </div>
+    <div class="leadership-pane">
+      <div class="leadership-label">What the numbers show</div>
+      <p>{html_text(es.actual_performance_indicator)}</p>
+    </div>
+  </div>
+  <div class="leadership-forward {forward_class}"><strong>Forward read:</strong> {html_text(es.forward_read)}</div>
+</div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
         if trend_risks:
             with st.expander(f"Industry trends and risks — {len(trend_risks)} signals", expanded=False):
                 for tr in trend_risks:
                     ot = tr.opportunity_or_threat
-                    with st.container(border=True):
-                        st.markdown(f"**{ot}** · {tr.category} · {tr.time_horizon} · {tr.affected_entity}")
-                        st.markdown(tr.signal)
-                        if ot == "THREAT":
-                            st.warning(f"Implication: {tr.strategic_implication}")
-                        else:
-                            st.info(f"Implication: {tr.strategic_implication}")
+                    trend_kind = "threat" if ot == "THREAT" else "opportunity"
+                    st.markdown(
+                        f"""
+<div class="signal-card">
+  <div class="signal-topline">
+    <span class="signal-title">{html_text(tr.category)}</span>
+    <span class="signal-platform">{html_text(tr.time_horizon)} · {html_text(tr.affected_entity)}</span>
+    <span class="signal-confidence {trend_kind}">{html_text(ot)}</span>
+  </div>
+  <p class="signal-desc">{html_text(tr.signal)}</p>
+  <div class="signal-readout">
+    <div class="label">Implication</div>
+    <p>{html_text(tr.strategic_implication)}</p>
+  </div>
+</div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
-        st.divider()
+        st.markdown('<hr class="lumen-rule"/>', unsafe_allow_html=True)
 
         # Evidence log
-        st.markdown("### What the data shows")
+        section_header("01", "What the data shows", "Observation → Inference → Strategic implication")
         for i, log in enumerate(final_brief.evidence_and_observation_log):
-            with st.container(border=True):
-                st.caption(f"Source fact: {log.evidence or 'N/A'}")
-                st.markdown(f"**Observation:** {log.observation or '—'}")
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown(f"**Inference (operational consequence):** {log.inference or '—'}")
-                with c2:
-                    st.markdown(f"**Strategic implication (industry-tailored):** {log.strategic_implication or '—'}")
-                if log.fact_anchor:
-                    st.caption(f"Traces to verified fact: {log.fact_anchor}")
+            trace_html = (
+                f'<div class="comparison-trace">↳ traces to: {html_text(log.fact_anchor)}</div>'
+                if log.fact_anchor else ""
+            )
+            st.markdown(
+                f"""
+<div class="comparison-card">
+  <div class="comparison-head">
+    <span class="comparison-badge">Verified fact</span>
+    <span class="comparison-subtle">{html_text(log.evidence, "N/A")}</span>
+  </div>
+  <div class="comparison-observation">
+    <div class="comparison-label">Observation</div>
+    <p>{html_text(log.observation)}</p>
+  </div>
+  <div class="comparison-grid">
+    <div class="comparison-pane">
+      <div class="comparison-label">Inference</div>
+      <p>{html_text(log.inference)}</p>
+    </div>
+    <div class="comparison-pane">
+      <div class="comparison-label edge">Strategic implication</div>
+      <p>{html_text(log.strategic_implication)}</p>
+    </div>
+  </div>
+  {trace_html}
+</div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         # Themes
-        st.markdown("### Patterns identified")
+        section_header("02", "Patterns identified", "Themes unique to this company's numbers")
         c1, c2 = st.columns(2)
         for idx, ts in enumerate(final_brief.strategic_themes_and_signals):
             target_col = c1 if idx % 2 == 0 else c2
             with target_col.container(border=True):
-                st.markdown(f"**{ts.name or 'Unnamed pattern'}**")
-                st.caption(ts.type or "Theme")
+                st.markdown(chip(ts.type or "THEME", "clay"), unsafe_allow_html=True)
+                st.markdown(f"**{md_text(ts.name, 'Unnamed pattern')}**")
                 for trace in ts.traceability:
-                    st.markdown(f"· {trace}")
+                    st.caption(f"· {md_text(trace)}")
 
         # Competitive landscape
-        st.markdown("### Competitive position")
+        section_header("03", "Competitive position", "Each rival, grounded in a verified metric")
         for comp in final_brief.competitive_landscape:
-            with st.container(border=True):
-                st.markdown(f"**{comp.competitor or 'Unknown'}**")
-                c_adv, c_vuln = st.columns(2)
-                with c_adv:
-                    st.markdown("**Where they have an edge**")
-                    st.success(comp.advantage or "—")
-                    if comp.advantage_evidence:
-                        st.caption(comp.advantage_evidence)
-                with c_vuln:
-                    st.markdown("**Where they are exposed**")
-                    st.error(comp.vulnerability or "—")
-                    if comp.vulnerability_evidence:
-                        st.caption(comp.vulnerability_evidence)
+            advantage_evidence = (
+                f'<div class="comparison-evidence">{html_text(comp.advantage_evidence)}</div>'
+                if comp.advantage_evidence else ""
+            )
+            vulnerability_evidence = (
+                f'<div class="comparison-evidence">{html_text(comp.vulnerability_evidence)}</div>'
+                if comp.vulnerability_evidence else ""
+            )
+            st.markdown(
+                f"""
+<div class="comparison-card">
+  <div class="comparison-head">
+    <span class="comparison-title">{html_text(comp.competitor, "Unknown")}</span>
+  </div>
+  <div class="comparison-grid">
+    <div class="comparison-pane">
+      <div class="comparison-label edge">Edge</div>
+      <p>{html_text(comp.advantage)}</p>
+      {advantage_evidence}
+    </div>
+    <div class="comparison-pane">
+      <div class="comparison-label exposure">Exposure</div>
+      <p>{html_text(comp.vulnerability)}</p>
+      {vulnerability_evidence}
+    </div>
+  </div>
+</div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         # Options
-        st.markdown("### Strategic options")
-        st.caption(final_brief.tie_break_reasoning or "Options ranked by composite score.")
+        section_header("04", "Strategic options", "Conservative · Balanced · Aggressive")
+        st.caption(md_text(final_brief.tie_break_reasoning, "Options ranked by composite score."))
 
         for rank, opt in enumerate(final_brief.evaluated_options):
             opt_type    = opt.option_type or "Unknown"
             is_selected = opt_type == final_brief.selected_option_type
-            label       = f"Recommended — {opt_type}" if is_selected else f"Option {rank + 1} — {opt_type}"
 
             with st.container(border=True):
                 h_col, s_col = st.columns([3, 1])
                 with h_col:
-                    if is_selected:
-                        st.markdown(f"### {label}")
-                    else:
-                        st.markdown(f"#### {label}")
-                    st.markdown(f"**{opt.option_strategy}**")
-                    st.markdown(opt.description or "—")
+                    badge = chip("★ RECOMMENDED", "clay") if is_selected else chip(f"OPTION {rank + 1}", "neutral")
+                    st.markdown(f'{badge} &nbsp; <b style="font-size:1.05rem">{md_text(opt_type)}</b>', unsafe_allow_html=True)
+                    st.markdown(f"*{md_text(opt.option_strategy)}*")
+                    st.markdown(md_text(opt.description))
                 with s_col:
-                    st.metric("Score", f"{opt.composite_score}/100")
+                    st.metric("Composite", f"{opt.composite_score}/100")
 
                 sc1, sc2, sc3, sc4, sc5, sc6 = st.columns(6)
                 sc1.metric("Evidence", f"{opt.evidence_support_score}/10")
-                sc2.metric("Strategic fit", f"{opt.strategic_fit_score}/10")
+                sc2.metric("Fit", f"{opt.strategic_fit_score}/10")
                 sc3.metric("Opportunity", f"{opt.opportunity_score}/10")
                 sc4.metric("Urgency", f"{opt.urgency_score}/10")
                 sc5.metric("Risk", f"{opt.risk_score}/10")
                 sc6.metric("Complexity", f"{opt.complexity_score}/10")
-                st.caption(f"Logic chain: {opt.traceability_chain or '—'}")
+                st.caption(f"Logic chain: {md_text(opt.traceability_chain)}")
 
         # Final recommendation
-        st.markdown("### Recommendation")
-        with st.container(border=True):
-            st.success(final_brief.recommended_decision or "No recommendation generated.")
-            if final_brief.selection_rationale:
-                st.markdown(f"**Why this option:** {final_brief.selection_rationale}")
-            if final_brief.contradicting_evidence and final_brief.contradicting_evidence.lower() not in ["none", "none explicitly noted.", "none explicitly noted"]:
-                st.warning(f"**Watch out for:** {final_brief.contradicting_evidence}")
-
-            st.divider()
-            c_label, c_exp = calibrate_confidence_label(verified_facts)
-            st.markdown(f"**Overall confidence:** {c_label}")
-            st.caption(c_exp)
+        section_header("05", "The recommendation", "Every recommendation cites a verified fact")
+        c_label, c_exp = calibrate_confidence_label(verified_facts)
+        watchout = final_brief.contradicting_evidence
+        show_watchout = watchout and watchout.lower() not in ["none", "none explicitly noted.", "none explicitly noted"]
+        watchout_html = (
+            f'<div class="recommendation-panel watchout">'
+            f'<div class="comparison-label exposure">Watch out for</div>'
+            f'<p>{html_text(watchout)}</p>'
+            f'</div>'
+            if show_watchout else ""
+        )
+        rationale_grid_class = "recommendation-grid" if show_watchout else "recommendation-grid single"
+        st.markdown(
+            f"""
+<div class="recommendation-card">
+  <div class="comparison-head">
+    <span class="comparison-badge">Decision</span>
+    <span class="comparison-subtle">Verified-fact recommendation</span>
+  </div>
+  <div class="recommendation-hero">
+    <div class="comparison-label edge">Recommended move</div>
+    <p>{html_text(final_brief.recommended_decision, "No recommendation generated.")}</p>
+  </div>
+  <div class="{rationale_grid_class}">
+    <div class="recommendation-panel">
+      <div class="comparison-label">Why this option</div>
+      <p>{html_text(final_brief.selection_rationale, "Selection rationale was not generated.")}</p>
+    </div>
+{watchout_html}
+  </div>
+  <div class="recommendation-footer">
+    <div class="recommendation-confidence">
+      <span class="comparison-label">Overall confidence</span>
+      <span class="score">{html_text(c_label)}</span>
+    </div>
+    <div class="recommendation-explainer">{html_text(c_exp)}</div>
+  </div>
+</div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         # Download
-        st.divider()
+        st.markdown('<hr class="lumen-rule"/>', unsafe_allow_html=True)
         export_package = {
             "entity_profile":          entity.model_dump(),
             "fact_precision_audit":    {"verified_facts": [vf.model_dump() for vf in verified_facts]},
