@@ -22,9 +22,9 @@ GROQ_KEY = os.getenv("GROQ_KEY") or os.getenv("GROQ_API_KEY") or st.secrets.get(
 llm_8b  = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant",   temperature=0.1)
 llm_70b = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
 
-st.set_page_config(page_title="Lens", page_icon="🔍", layout="wide")
-st.title("Lens")
-st.caption("Look inside any company — financials, competitors, risks, what to do next.")
+st.set_page_config(page_title="Lumen", page_icon="🪶", layout="wide")
+st.title("🪶 Lumen")
+st.caption("Industry-aware strategic intelligence · Verified facts · Tailored competitive insight · Decisions you can trace")
 st.divider()
 
 # ==========================================
@@ -289,6 +289,79 @@ def check_layer_differentiation(observation: str, inference: str, theme_name: st
     if rephrased: issues.append(f"Layer violation — Inference is a rephrasing of Observation: {msg}")
     return issues
 
+# ── Unsupported-prediction / speculation guard ──
+UNSUPPORTED_PREDICTION_MARKERS = [
+    "will likely", "is expected to", "we predict", "projected to", "forecast",
+    "in the coming years", "going forward the market", "industry will", "could grow to",
+    "is poised to", "set to", "anticipated to", "should reach", "by 2030", "by 2027", "by 2028",
+    "potential to become", "expected growth", "market is shifting toward",
+]
+
+SPECULATIVE_CAUSE_MARKERS = [
+    "probably because", "likely due to", "may be driven by", "possibly caused by",
+    "could be attributed to", "appears to stem from", "presumably", "we suspect",
+    "macroeconomic conditions", "market dynamics", "competitive pressures",
+    "general industry trends", "broader economic factors", "consumer sentiment",
+]
+
+def fact_corpus(verified_facts: list) -> str:
+    """Lowercased concatenation of all verified-fact text for substring grounding checks."""
+    return " ".join((f.fact or "").lower() for f in (verified_facts or []))
+
+def numeric_tokens(text: str) -> set:
+    """Extract numeric/metric tokens (percentages, currency figures, basis points)."""
+    if not text: return set()
+    return set(re.findall(r'\d[\d,\.]*\s?(?:%|bps|basis points|billion|million|bn|mn)?', text.lower()))
+
+def chain_is_fact_grounded(log: "EvidenceLog", verified_facts: list) -> tuple[bool, str]:
+    """An Observation->Inference->Implication chain is valid only if its numbers trace to a verified fact."""
+    corpus = fact_corpus(verified_facts)
+    if not corpus:
+        return False, "No verified facts available to anchor this chain."
+    anchor = (log.fact_anchor or log.evidence or "").lower().strip()
+    if not anchor:
+        return False, "Chain has no fact_anchor or evidence to trace back to."
+    # The anchor's numeric tokens must appear in the verified fact corpus
+    nums = numeric_tokens(anchor)
+    if nums and not any(n.strip() and n.strip() in corpus for n in nums):
+        return False, f"Chain numbers {sorted(nums)} not found in any verified fact — possible fabrication."
+    return True, ""
+
+def contains_unsupported_prediction(text: str, verified_facts: list) -> tuple[bool, str]:
+    """Flag forward-looking market predictions that are not grounded in a verified numeric fact."""
+    if not text: return False, ""
+    tl = text.lower()
+    hits = [m for m in UNSUPPORTED_PREDICTION_MARKERS if m in tl]
+    if not hits:
+        return False, ""
+    corpus = fact_corpus(verified_facts)
+    nums = numeric_tokens(text)
+    grounded = any(n.strip() and n.strip() in corpus for n in nums) if nums else False
+    if not grounded:
+        return True, f"Unsupported prediction language without fact grounding: {', '.join(hits)}"
+    return False, ""
+
+def contains_speculative_cause(text: str) -> tuple[bool, str]:
+    """Flag speculative / generic root-cause language that the platform must omit."""
+    if not text: return False, ""
+    tl = text.lower()
+    hits = [m for m in SPECULATIVE_CAUSE_MARKERS if m in tl]
+    if hits:
+        return True, f"Speculative or generic causal language: {', '.join(hits)}"
+    return False, ""
+
+def recommendation_references_fact(decision: str, verified_facts: list) -> tuple[bool, str]:
+    """Every recommendation must cite at least one verified-fact numeric token."""
+    if not decision:
+        return False, "Recommendation is empty."
+    corpus_nums = set()
+    for f in (verified_facts or []):
+        corpus_nums |= numeric_tokens(f.fact or "")
+    dec_nums = numeric_tokens(decision)
+    if corpus_nums and dec_nums and (dec_nums & corpus_nums):
+        return True, ""
+    return False, "Recommendation does not reference any verified-fact metric."
+
 def evaluate_trust(url: str, company: str = "") -> str:
     url_lower = url.lower()
     domain    = urlparse(url).netloc.lower().replace("www.", "")
@@ -355,104 +428,47 @@ def calculate_option_score(evidence_support: int, strategic_fit: int, opportunit
 
 def validate_traceability_chain(brief, verified_facts: list = None) -> list[str]:
     violations = []
+    verified_facts = verified_facts or []
+
+    # 1. Generic / template theme names are rejected
     for theme in brief.strategic_themes_and_signals:
-        if theme.name and theme.name.lower().strip() in ["portfolio-driven revenue resilience", "revenue growth", "profitability"]:
+        if theme.name and theme.name.lower().strip() in [
+            "portfolio-driven revenue resilience", "revenue growth", "profitability",
+            "competitive pressure", "market dynamics", "operational excellence",
+        ]:
             violations.append(f"Theme '{theme.name}': Static universal templates rejected.")
+
+    # 2. Every Observation->Inference->Implication chain must trace to a verified fact
+    for i, log in enumerate(brief.evidence_and_observation_log):
+        ok, msg = chain_is_fact_grounded(log, verified_facts)
+        if not ok:
+            violations.append(f"Chain #{i+1}: {msg}")
+        # Observation must stay reasoning-free
+        has_reason, rmsg = contains_reasoning(log.observation or "")
+        if has_reason:
+            violations.append(f"Chain #{i+1} observation: {rmsg}")
+        # Inference must not merely rephrase observation
+        for issue in check_layer_differentiation(log.observation or "", log.inference or ""):
+            violations.append(f"Chain #{i+1}: {issue}")
+        # Strategic implication must not be speculative or an unsupported prediction
+        spec, smsg = contains_speculative_cause(log.strategic_implication or "")
+        if spec:
+            violations.append(f"Chain #{i+1} implication: {smsg}")
+        pred, pmsg = contains_unsupported_prediction(log.strategic_implication or "", verified_facts)
+        if pred:
+            violations.append(f"Chain #{i+1} implication: {pmsg}")
+
+    # 3. Recommendation must reference a verified fact
+    ok, msg = recommendation_references_fact(brief.recommended_decision or "", verified_facts)
+    if not ok:
+        violations.append(f"Recommendation: {msg}")
+
+    # 4. No unsupported predictions in the recommendation itself
+    pred, pmsg = contains_unsupported_prediction(brief.recommended_decision or "", verified_facts)
+    if pred:
+        violations.append(f"Recommendation: {pmsg}")
+
     return violations
-
-# ── UNSUPPORTED CONTENT FILTERS ──────────────────────────────────────────────
-
-UNSUPPORTED_ROOT_CAUSE_PHRASES = [
-    "macroeconomic conditions", "macroeconomic environment", "macroeconomic headwinds",
-    "competitive pressures", "competitive landscape", "competitive dynamics",
-    "market dynamics", "market conditions", "market forces", "market environment",
-    "global uncertainty", "economic uncertainty", "industry trends",
-    "supply chain disruptions", "geopolitical tensions", "inflationary pressures",
-    "consumer behavior changes", "broader economic", "external factors",
-    "challenging environment", "difficult market", "uncertain environment",
-    "ongoing challenges", "various factors", "multiple factors",
-]
-
-UNSUPPORTED_INFERENCE_PHRASES = [
-    "will likely", "is expected to", "should improve", "could lead to",
-    "may result in", "expected to grow", "poised to", "on track to",
-    "positioned to benefit", "well positioned", "set to", "anticipated to",
-    "projected to", "forecast to", "heading towards", "trending toward",
-]
-
-PROBABILITY_TAGS = [" | confirmed", " | likely", " | hypothesis"]
-
-def _has_probability_tag(text: str) -> bool:
-    """Check if inference ends with a required probability tag."""
-    tl = text.lower().strip().rstrip(".")
-    return any(tl.endswith(tag) for tag in PROBABILITY_TAGS)
-
-def _contains_unsupported_root_cause(text: str) -> bool:
-    tl = text.lower()
-    return any(phrase in tl for phrase in UNSUPPORTED_ROOT_CAUSE_PHRASES)
-
-def _contains_unsupported_inference(text: str) -> bool:
-    tl = text.lower()
-    return any(phrase in tl for phrase in UNSUPPORTED_INFERENCE_PHRASES)
-
-def _inference_references_evidence(inference: str, evidence: str) -> bool:
-    """Check the inference shares at least one meaningful token with the evidence it stems from."""
-    if not inference or not evidence: return True  # can't check, pass through
-    stopwords = {"the","a","an","is","are","was","were","has","have","in","of","to","for","and","or","this","that","it","its"}
-    def content_words(t):
-        return {w.strip(".,;:()%$€₹\"'") for w in t.lower().split() if len(w.strip(".,;:()%$€₹\"'")) > 3 and w.lower() not in stopwords}
-    shared = content_words(inference) & content_words(evidence)
-    return len(shared) >= 1
-
-def sanitize_evidence_logs(logs: List[EvidenceLog]) -> tuple[List[EvidenceLog], List[str]]:
-    """
-    Strip or flag unsupported root causes and inferences.
-    Returns cleaned logs + list of issues found.
-    """
-    cleaned, issues = [], []
-    for i, log in enumerate(logs):
-        tag = f"Finding {i+1}"
-
-        # Root cause — replace generic with explicit fallback note
-        if log.root_cause and _contains_unsupported_root_cause(log.root_cause):
-            issues.append(f"{tag}: Root cause too generic — replaced with 'Driver not determinable from available data'.")
-            log = log.model_copy(update={"root_cause": "Driver not determinable from available data — specific cause requires additional filings."})
-
-        # Inference — must have probability tag
-        if log.inference and not _has_probability_tag(log.inference):
-            fixed_inf = log.inference.rstrip(".") + " | HYPOTHESIS"
-            issues.append(f"{tag}: Inference missing probability tag — auto-tagged as | HYPOTHESIS.")
-            log = log.model_copy(update={"inference": fixed_inf})
-
-        # Inference — flag if using unsupported forward-looking language without evidence anchor
-        if log.inference and _contains_unsupported_inference(log.inference):
-            if not _inference_references_evidence(log.inference, log.evidence or ""):
-                issues.append(f"{tag}: Inference uses unsupported prediction language without an evidence anchor.")
-                log = log.model_copy(update={"inference": log.inference.rstrip(".") + " [unanchored prediction — verify before acting]"})
-
-        # Strategic implication — must exist and must not be empty
-        if not log.strategic_implication or len(log.strategic_implication.strip()) < 15:
-            log = log.model_copy(update={"strategic_implication": "No actionable implication determined from available data."})
-
-        cleaned.append(log)
-    return cleaned, issues
-
-def validate_option_fact_anchors(options: List[EvaluatedOption], verified_facts: List) -> tuple[List[EvaluatedOption], List[str]]:
-    """
-    Check each option references a verified fact. Flag those that don't.
-    """
-    fact_corpus = " ".join([f.fact.lower() for f in verified_facts]) if verified_facts else ""
-    issues = []
-    for opt in options:
-        anchor = opt.fact_anchor or ""
-        desc   = opt.description or ""
-        # Try to find any numeric token or named entity from desc in the fact corpus
-        numbers_in_desc = re.findall(r'\d+\.?\d*%?', desc)
-        anchor_found = bool(anchor and anchor.lower()[:30] in fact_corpus)
-        number_found = any(n in fact_corpus for n in numbers_in_desc)
-        if not anchor_found and not number_found:
-            issues.append(f"Option '{opt.option_type}': No verified fact anchor detected in description — recommendation may not be evidence-based.")
-    return options, issues
 
 # ==========================================
 # 4. EXECUTOR CORE & ROBUST FALLBACK DATA LAKE
@@ -650,11 +666,11 @@ class TrendRiskSignal(BaseModel):
     strategic_implication: str
 
 class EvidenceLog(BaseModel):
-    evidence: Optional[str] = None
-    observation: Optional[str] = None
-    root_cause: Optional[str] = None
-    inference: Optional[str] = None
-    strategic_implication: Optional[str] = None  # What decision-makers should do because of this inference
+    evidence: Optional[str] = None              # Exact verified-fact metric quoted from the ledger
+    observation: Optional[str] = None           # Naked metric shift, no reasoning linkers
+    inference: Optional[str] = None             # Operational consequence to financial capacity / asset footprint
+    strategic_implication: Optional[str] = None # What this means for THIS business model vs THIS competitive set
+    fact_anchor: Optional[str] = None           # Verbatim verified-fact substring this whole chain traces to
 
 class ThemeSignal(BaseModel):
     name: Optional[str] = None
@@ -673,7 +689,6 @@ class EvaluatedOption(BaseModel):
     option_strategy: Optional[str] = None
     description: Optional[str] = None
     traceability_chain: Union[str, List[str], None] = None
-    fact_anchor: Optional[str] = None           # The exact verified fact this option is built on
     evidence_support_score: int = 5
     strategic_fit_score: int = 5
     opportunity_score: int = 5
@@ -980,130 +995,89 @@ def run_expert_reasoner(
     exec_feed   = "\n".join([f"- [{e.gap_assessment}] Guidance Vector: {e.stated_priority} | Realized Indicator: {e.actual_performance_indicator}" for e in (exec_signals or [])])
     trend_feed  = "\n".join([f"- [{t.category}] Horizon: {t.time_horizon} | Threat/Opp: {t.opportunity_or_threat} | Data: {t.signal}" for t in (trend_risks or [])])
 
-    prompt = f"""Analyze {entity.canonical_name} using the data below and produce a strategic brief.
+    prompt = f"""You are a senior strategy analyst producing an INDUSTRY-AWARE brief for {entity.canonical_name}. Every insight, theme, risk, competitor read, and recommendation must be tailored to THIS company's business model and competitive environment — never generic.
 
-TARGET: {entity.canonical_name} | Sector: {entity.sector} | Known rivals: {entity.known_competitors}
+COMPANY CONTEXT (use this to tailor everything):
+- Entity: {entity.canonical_name}
+- Sector / Industry: {entity.sector} | {entity.industry}
+- Business model: {entity.business_model}
+- Primary market(s): {entity.primary_market}
+- Direct rivals: {entity.known_competitors}
 
-VERIFIED DATA INPUTS:
-Financial facts (these are the only things you are allowed to build inferences from):
+VERIFIED FINANCIAL FACT LEDGER (the ONLY source of numbers you may use):
 {fact_text}
 
+SUPPORTING OPERATIONAL FEEDS (context only — never the source of a metric):
 Market signals:
 {signal_text}
-
 Brand & campaign activity:
 {social_feed}
-
 Strategic moves & investments:
 {init_feed}
-
 Executive guidance vs performance:
 {exec_feed}
-
 Industry trends & risks:
 {trend_feed}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-REASONING RULES — NON-NEGOTIABLE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+---
+NON-NEGOTIABLE RULES:
 
-RULE 1 — THREE-LAYER CHAIN (every entry in evidence_and_observation_log must flow through all three):
+A) FACT GROUNDING. Every number you write MUST appear in the Verified Fact Ledger above. Never invent figures. If a claim cannot be traced to a ledger row, omit it.
 
-  Layer 1 — OBSERVATION:
-  • State what the data shows as a plain factual shift. Numbers only, no logic words.
-  • Forbidden words: because, therefore, suggests, indicates, implies, due to, as a result,
-    caused by, which shows, this means, leading to, resulting in, consequently.
-  • ✓ PASS: "Operating margin compressed 210 basis points to 11.4%."
-  • ✗ FAIL: "Operating margin fell because of price cuts." (contains causal word "because of")
+B) NO SPECULATION / NO ROOT-CAUSE GUESSING. Do not assert WHY something happened unless the ledger states it. Banned phrasing includes: "macroeconomic conditions", "market dynamics", "competitive pressures", "likely due to", "probably because", "we suspect". Do not make market predictions ("will grow to", "poised to", "by 2030") unless the figure is in the ledger.
 
-  Layer 2 — INFERENCE:
-  • Name the specific commercial consequence of this observation for {entity.canonical_name}.
-  • Must reference the company by name OR a named product line, named market, or named rival.
-  • Must end with exactly one tag: | CONFIRMED  | LIKELY  | HYPOTHESIS
-  • Forbidden: generic forward-looking phrases like "will likely", "is expected to",
-    "poised to benefit", "well positioned", "projected to", "should improve", "may result in"
-    unless immediately followed by a specific number or named outcome from the data.
-  • ✓ PASS: "Sustained margin compression in China threatens free cash flow generation for Model 3 reinvestment | LIKELY"
-  • ✗ FAIL: "The company is well positioned to grow" (vague, no evidence anchor, no tag)
+C) THE CHAIN — for each entry in evidence_and_observation_log, build a strict, escalating chain:
+   1. evidence: copy a metric verbatim from the ledger.
+   2. observation: restate it as a naked metric shift. NO reasoning words (no: because, therefore, suggests, indicates, implies, due to, as a result, caused by, which shows).
+   3. inference: the concrete operational consequence to {entity.canonical_name}'s financial capacity or asset footprint — must add information beyond the observation, not rephrase it.
+   4. strategic_implication: what this means specifically for a {entity.industry} business with model "{entity.business_model}" operating against {entity.known_competitors}. Tie it to the competitive set.
+   5. fact_anchor: paste the exact ledger substring this whole chain traces back to.
+   Each layer must escalate: metric -> shift -> consequence -> tailored strategic meaning.
 
-  Layer 3 — STRATEGIC IMPLICATION:
-  • State the specific action decision-makers should consider BECAUSE of the inference above.
-  • Must be directly traceable to the inference — not a generic best practice.
-  • Must name a specific action with a direction (prioritise / defer / hedge / accelerate / exit).
-  • ✓ PASS: "Prioritise price floor discipline in China to arrest margin compression before Q3 earnings window."
-  • ✗ FAIL: "The company should explore opportunities to strengthen its market position."
+D) THEMES. Name each theme specifically for THIS company's numbers and industry (e.g. "Gross Margin Recovery Post-Yeezy Exit", "China Price War Eroding EV Unit Economics"). Never generic ("Revenue Growth", "Competitive Pressure").
 
-RULE 2 — ROOT CAUSE SPECIFICITY:
-  root_cause must name ONE of:
-  a) A specific company decision or management action (e.g. "Tesla's decision to cut Model Y price by 8% in China")
-  b) A named competitor's move (e.g. "BYD's $92B revenue expansion capturing 34% China EV share")
-  c) A named product-level or market-level event (e.g. "Adidas post-Yeezy inventory write-down cycle")
-  REJECTED root causes (too generic, will be replaced automatically):
-  "macroeconomic conditions", "competitive pressures", "market dynamics", "industry trends",
-  "global uncertainty", "consumer behavior changes", "external factors", "challenging environment".
+E) COMPETITIVE LANDSCAPE. For each named rival in {entity.known_competitors}, ground both the advantage and the vulnerability in a specific ledger metric. Frame each edge in terms of this industry's value drivers (e.g. unit economics, channel mix, R&D intensity — pick what fits {entity.industry}).
 
-RULE 3 — EVERY OPTION MUST BE ANCHORED TO A VERIFIED FACT:
-  Each evaluated_option must include a "fact_anchor" field containing a direct quote or
-  paraphrase of a verified fact from the input data. If no verified fact supports an option,
-  do not generate that option — replace it with one that IS supported.
-  ✓ PASS fact_anchor: "Gross profit margin expanded 120bps to 47.5% post-Yeezy restructuring"
-  ✗ FAIL fact_anchor: "Company has strong brand presence globally" (not in data, not verified)
+F) OPTIONS. Exactly 3 (Conservative, Balanced, Aggressive), tailored to {entity.business_model}. Score with WIDE dynamic ranges (1-10) to reflect real trade-offs — do not default Balanced to the top. Each description must name a specific ledger metric, a specific rival, and a concrete directional target.
 
-RULE 4 — SCORE DIFFERENTIATION:
-  You must produce meaningfully different scores across the 3 options.
-  Balanced is not the default winner. Score what the verified facts support.
-  - Conservative: evidence_support 7-9, opportunity 3-6
-  - Balanced: mid-range across all dimensions
-  - Aggressive: opportunity 7-9, risk 6-9, complexity 6-9, evidence_support may be 5-7
+G) RECOMMENDED DECISION — must reference at least one verified-fact metric and follow exactly:
+"Based on Obs: [specific metric from ledger], Inf: [operational consequence | probability], Theme: [exact theme name], Opt: [option type]: [specific step naming a rival and a numeric target tied to {entity.industry}]."
 
-RULE 5 — OPTION DESCRIPTIONS:
-  Each option must: (1) name a specific metric or rival from the data,
-  (2) reference a specific geography/product/segment, (3) state a directional goal with a number.
-  ✓ "Recover gross margin from 47.5% toward 50%+ within 24 months by exiting Yeezy-era wholesale dependencies"
-  ✗ "Improve margins through operational efficiency"
-
-RULE 6 — RECOMMENDED DECISION FORMAT:
-  "Based on Obs: [exact metric], Inf: [consequence | tag], Implication: [action], Opt: [type]: [specific step with number]."
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT JSON SCHEMA
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Return a raw JSON object only:
 {{
   "status": "SUFFICIENT",
-  "reason": "One sentence on data quality and coverage.",
+  "reason": "Brief one-line description of data quality.",
   "evidence_and_observation_log": [
     {{
-      "evidence": "Exact metric or data point copied from input",
-      "observation": "Plain factual shift — numbers only, zero causal/logic words",
-      "root_cause": "Named specific driver: company decision / rival action / product event",
-      "inference": "Specific commercial consequence for {entity.canonical_name} | LIKELY",
-      "strategic_implication": "Specific action with direction (prioritise/defer/hedge/accelerate/exit)"
+      "evidence": "Exact metric copied from the ledger",
+      "observation": "Naked metric shift — no logic connectors",
+      "inference": "Operational consequence to financial capacity / asset footprint",
+      "strategic_implication": "What this means for a {entity.industry} business vs {entity.known_competitors}",
+      "fact_anchor": "Exact ledger substring this chain traces to"
     }}
   ],
   "strategic_themes_and_signals": [
     {{
-      "name": "Company-specific short label (e.g. 'Gross Margin Recovery Post-Yeezy Exit')",
+      "name": "Company- and industry-specific theme name",
       "type": "STRATEGIC THEME",
-      "traceability": ["Exact observation text this theme maps to"]
+      "traceability": ["Observation text it maps to"]
     }}
   ],
   "competitive_landscape": [
     {{
-      "competitor": "Named rival from input data",
-      "advantage": "Specific operational edge backed by a number",
-      "advantage_evidence": "Exact metric from input supporting this",
-      "vulnerability": "Specific weakness backed by a number",
-      "vulnerability_evidence": "Exact metric from input supporting this"
+      "competitor": "Named rival from context",
+      "advantage": "Specific edge framed in {entity.industry} value drivers",
+      "advantage_evidence": "Exact ledger metric supporting this",
+      "vulnerability": "Specific structural weakness",
+      "vulnerability_evidence": "Exact ledger metric supporting this"
     }}
   ],
   "evaluated_options": [
     {{
       "option_type": "Conservative",
-      "option_strategy": "Short name tied to specific data",
-      "description": "What exactly to do — metric + geography/segment + directional goal with number",
-      "fact_anchor": "Exact verified fact this option is built on",
-      "traceability_chain": "Observation -> Inference -> Implication",
+      "option_strategy": "Strategy tailored to {entity.business_model}",
+      "description": "What exactly to do, naming a real metric and rival",
+      "traceability_chain": "Theme -> Inference -> Observation",
       "evidence_support_score": 0,
       "strategic_fit_score": 0,
       "opportunity_score": 0,
@@ -1115,10 +1089,9 @@ Return a raw JSON object only:
     }},
     {{
       "option_type": "Balanced",
-      "option_strategy": "Short name tied to specific data",
-      "description": "What exactly to do — metric + geography/segment + directional goal with number",
-      "fact_anchor": "Exact verified fact this option is built on",
-      "traceability_chain": "Observation -> Inference -> Implication",
+      "option_strategy": "Strategy tailored to {entity.business_model}",
+      "description": "What exactly to do, naming a real metric and rival",
+      "traceability_chain": "Theme -> Inference -> Observation",
       "evidence_support_score": 0,
       "strategic_fit_score": 0,
       "opportunity_score": 0,
@@ -1130,10 +1103,9 @@ Return a raw JSON object only:
     }},
     {{
       "option_type": "Aggressive",
-      "option_strategy": "Short name tied to specific data",
-      "description": "What exactly to do — metric + geography/segment + directional goal with number",
-      "fact_anchor": "Exact verified fact this option is built on",
-      "traceability_chain": "Observation -> Inference -> Implication",
+      "option_strategy": "Strategy tailored to {entity.business_model}",
+      "description": "What exactly to do, naming a real metric and rival",
+      "traceability_chain": "Theme -> Inference -> Observation",
       "evidence_support_score": 0,
       "strategic_fit_score": 0,
       "opportunity_score": 0,
@@ -1144,11 +1116,11 @@ Return a raw JSON object only:
       "rejection_reason": null
     }}
   ],
-  "recommended_decision": "Based on Obs: [exact metric], Inf: [consequence | tag], Implication: [specific action], Opt: [type]: [step with number].",
+  "recommended_decision": "Based on Obs: [ledger metric], Inf: [consequence | probability], Theme: [exact theme name], Opt: [option type]: [specific step naming a rival and a numeric target].",
   "selected_option_type": "",
-  "selection_rationale": "Which option scored highest and specifically why, referencing score deltas.",
-  "contradicting_evidence": "Any verified data points that cut against the recommendation, or 'None found'.",
-  "confidence_assessment": "HIGH / MEDIUM / LOW — one sentence reason."
+  "selection_rationale": "Which option scored highest and why, referencing the score differences.",
+  "contradicting_evidence": "Any ledger data points that cut against the recommendation.",
+  "confidence_assessment": "HIGH / MEDIUM / LOW with one-line reason."
 }}"""
 
     try:
@@ -1175,18 +1147,35 @@ Return a raw JSON object only:
         # Map structural dictionary fields cleanly straight into Pydantic model
         brief = DecisionIntelligenceBrief(**data)
 
-        # ── POST-PROCESSING VALIDATORS ──────────────────────────────────────
-        # 1. Sanitize evidence logs: fix missing probability tags, strip generic
-        #    root causes, flag unanchored predictions, ensure strategic_implication exists
-        brief.evidence_and_observation_log, log_issues = sanitize_evidence_logs(
-            brief.evidence_and_observation_log
-        )
-        # 2. Validate every option has a verified fact anchor
-        brief.evaluated_options, option_issues = validate_option_fact_anchors(
-            brief.evaluated_options, verified_facts
-        )
-        # Store all issues for display
-        brief._validation_issues = log_issues + option_issues  # type: ignore[attr-defined]
+        # ── DETERMINISTIC ENFORCEMENT PASS ──
+        # 1. Keep only Observation->Inference->Implication chains that trace to a verified fact,
+        #    and scrub any chain carrying speculative cause or unsupported prediction language.
+        clean_log = []
+        for log in brief.evidence_and_observation_log:
+            grounded, _ = chain_is_fact_grounded(log, verified_facts)
+            if not grounded:
+                continue
+            spec, _ = contains_speculative_cause(log.strategic_implication or "")
+            if spec:
+                log.strategic_implication = None  # omit speculation rather than emit it
+            pred, _ = contains_unsupported_prediction(log.strategic_implication or "", verified_facts)
+            if pred:
+                log.strategic_implication = None
+            # Observations must stay reasoning-free
+            has_reason, _ = contains_reasoning(log.observation or "")
+            if has_reason:
+                continue
+            clean_log.append(log)
+        brief.evidence_and_observation_log = clean_log
+
+        # 2. Recommendation must reference a verified fact; if not, mark it for review.
+        rec_ok, rec_msg = recommendation_references_fact(brief.recommended_decision or "", verified_facts)
+        pred_bad, _ = contains_unsupported_prediction(brief.recommended_decision or "", verified_facts)
+        if (not rec_ok) or pred_bad:
+            brief.recommended_decision = (
+                (brief.recommended_decision or "")
+                + "  [⚠ Flagged: recommendation must cite a verified-fact metric and avoid unsupported prediction.]"
+            )
 
         # Generate absolute clamped scoring parameters via balanced formula math matrix
         scored = []
@@ -1321,8 +1310,8 @@ if st.button("Run Analysis", type="primary"):
         v_col1, v_col2, v_col3, v_col4 = st.columns(4)
         v_col1.metric("Data quality", "Strong" if len(verified_facts) >= 3 else "Partial")
         v_col2.metric("Cross-source check", "Passed" if evidence_sufficient else "Incomplete")
-        v_col3.metric("Competitor data", "Found" if initiatives else "Limited")
-        v_col4.metric("Traceability", "Clean" if not validate_traceability_chain(final_brief) else "Review needed")
+        v_col3.metric("Competitor data", "Found" if final_brief.competitive_landscape else "Limited")
+        v_col4.metric("Traceability", "Clean" if not validate_traceability_chain(final_brief, verified_facts) else "Review needed")
 
         st.success(final_brief.reason or "Sufficient data found across all analysis layers.")
         st.divider()
@@ -1405,68 +1394,49 @@ if st.button("Run Analysis", type="primary"):
 
         st.divider()
 
-        # ════════════════════════════════════════════
-        # KEY FINDINGS — full 3-layer chain
-        # ════════════════════════════════════════════
-        st.markdown("### Key findings")
-        st.caption("Each finding flows: what happened → why → what to do about it.")
+        # Evidence log
+        st.markdown("### What the data shows")
         for i, log in enumerate(final_brief.evidence_and_observation_log):
             with st.container(border=True):
-                # Layer 1 — Observation
-                st.markdown(f"**{log.observation or '—'}**")
+                st.caption(f"Source fact: {log.evidence or 'N/A'}")
+                st.markdown(f"**Observation:** {log.observation or '—'}")
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.markdown(f"**Why:** {log.root_cause or '—'}")
-                    if log.inference:
-                        prob  = log.inference.lower()
-                        color = "green" if "| confirmed" in prob else "orange" if "| likely" in prob else "gray"
-                        st.markdown(f":{color}[**Inference:** {log.inference}]")
+                    st.markdown(f"**Inference (operational consequence):** {log.inference or '—'}")
                 with c2:
-                    impl = log.strategic_implication or ""
-                    if impl and impl != "No actionable implication determined from available data.":
-                        st.info(f"**Act on this:** {impl}")
-                    else:
-                        st.caption("No specific action determined from available data.")
-                if log.evidence:
-                    st.caption(f"Source data: {log.evidence}")
+                    st.markdown(f"**Strategic implication (industry-tailored):** {log.strategic_implication or '—'}")
+                if log.fact_anchor:
+                    st.caption(f"Traces to verified fact: {log.fact_anchor}")
 
-        # ════════════════════════════════════════════
-        # PATTERNS
-        # ════════════════════════════════════════════
-        if final_brief.strategic_themes_and_signals:
-            st.markdown("### Patterns identified")
-            c1, c2 = st.columns(2)
-            for idx, ts in enumerate(final_brief.strategic_themes_and_signals):
-                target_col = c1 if idx % 2 == 0 else c2
-                with target_col.container(border=True):
-                    st.markdown(f"**{ts.name or 'Unnamed pattern'}**")
-                    st.caption(ts.type or "Theme")
-                    for trace in ts.traceability:
-                        st.markdown(f"· {trace}")
+        # Themes
+        st.markdown("### Patterns identified")
+        c1, c2 = st.columns(2)
+        for idx, ts in enumerate(final_brief.strategic_themes_and_signals):
+            target_col = c1 if idx % 2 == 0 else c2
+            with target_col.container(border=True):
+                st.markdown(f"**{ts.name or 'Unnamed pattern'}**")
+                st.caption(ts.type or "Theme")
+                for trace in ts.traceability:
+                    st.markdown(f"· {trace}")
 
-        # ════════════════════════════════════════════
-        # COMPETITIVE POSITION
-        # ════════════════════════════════════════════
-        if final_brief.competitive_landscape:
-            st.markdown("### Competitive position")
-            for comp in final_brief.competitive_landscape:
-                with st.container(border=True):
-                    st.markdown(f"**{comp.competitor or 'Unknown'}**")
-                    c_adv, c_vuln = st.columns(2)
-                    with c_adv:
-                        st.markdown("**Where they have an edge**")
-                        st.success(comp.advantage or "—")
-                        if comp.advantage_evidence:
-                            st.caption(comp.advantage_evidence)
-                    with c_vuln:
-                        st.markdown("**Where they are exposed**")
-                        st.error(comp.vulnerability or "—")
-                        if comp.vulnerability_evidence:
-                            st.caption(comp.vulnerability_evidence)
+        # Competitive landscape
+        st.markdown("### Competitive position")
+        for comp in final_brief.competitive_landscape:
+            with st.container(border=True):
+                st.markdown(f"**{comp.competitor or 'Unknown'}**")
+                c_adv, c_vuln = st.columns(2)
+                with c_adv:
+                    st.markdown("**Where they have an edge**")
+                    st.success(comp.advantage or "—")
+                    if comp.advantage_evidence:
+                        st.caption(comp.advantage_evidence)
+                with c_vuln:
+                    st.markdown("**Where they are exposed**")
+                    st.error(comp.vulnerability or "—")
+                    if comp.vulnerability_evidence:
+                        st.caption(comp.vulnerability_evidence)
 
-        # ════════════════════════════════════════════
-        # STRATEGIC OPTIONS — with fact anchors
-        # ════════════════════════════════════════════
+        # Options
         st.markdown("### Strategic options")
         st.caption(final_brief.tie_break_reasoning or "Options ranked by composite score.")
 
@@ -1478,132 +1448,39 @@ if st.button("Run Analysis", type="primary"):
             with st.container(border=True):
                 h_col, s_col = st.columns([3, 1])
                 with h_col:
-                    st.markdown(f"### {label}" if is_selected else f"#### {label}")
-                    st.markdown(f"**{opt.option_strategy or '—'}**")
-                    st.markdown(opt.description or "—")
-                    # Show the verified fact this option rests on
-                    if opt.fact_anchor:
-                        st.caption(f"Built on: {opt.fact_anchor}")
+                    if is_selected:
+                        st.markdown(f"### {label}")
                     else:
-                        st.caption("⚠ No verified fact anchor — treat with caution.")
+                        st.markdown(f"#### {label}")
+                    st.markdown(f"**{opt.option_strategy}**")
+                    st.markdown(opt.description or "—")
                 with s_col:
                     st.metric("Score", f"{opt.composite_score}/100")
 
                 sc1, sc2, sc3, sc4, sc5, sc6 = st.columns(6)
-                sc1.metric("Evidence",      f"{opt.evidence_support_score}/10")
+                sc1.metric("Evidence", f"{opt.evidence_support_score}/10")
                 sc2.metric("Strategic fit", f"{opt.strategic_fit_score}/10")
-                sc3.metric("Opportunity",   f"{opt.opportunity_score}/10")
-                sc4.metric("Urgency",       f"{opt.urgency_score}/10")
-                sc5.metric("Risk",          f"{opt.risk_score}/10")
-                sc6.metric("Complexity",    f"{opt.complexity_score}/10")
-                if opt.traceability_chain:
-                    st.caption(f"Chain: {opt.traceability_chain}")
+                sc3.metric("Opportunity", f"{opt.opportunity_score}/10")
+                sc4.metric("Urgency", f"{opt.urgency_score}/10")
+                sc5.metric("Risk", f"{opt.risk_score}/10")
+                sc6.metric("Complexity", f"{opt.complexity_score}/10")
+                st.caption(f"Logic chain: {opt.traceability_chain or '—'}")
 
-        # ════════════════════════════════════════════
-        # RECOMMENDATION
-        # ════════════════════════════════════════════
+        # Final recommendation
         st.markdown("### Recommendation")
         with st.container(border=True):
             st.success(final_brief.recommended_decision or "No recommendation generated.")
             if final_brief.selection_rationale:
                 st.markdown(f"**Why this option:** {final_brief.selection_rationale}")
-            if final_brief.contradicting_evidence and final_brief.contradicting_evidence.lower() not in [
-                "none", "none found", "none explicitly noted.", "none explicitly noted", "n/a", ""
-            ]:
+            if final_brief.contradicting_evidence and final_brief.contradicting_evidence.lower() not in ["none", "none explicitly noted.", "none explicitly noted"]:
                 st.warning(f"**Watch out for:** {final_brief.contradicting_evidence}")
+
             st.divider()
             c_label, c_exp = calibrate_confidence_label(verified_facts)
             st.markdown(f"**Overall confidence:** {c_label}")
             st.caption(c_exp)
 
-        # ════════════════════════════════════════════
-        # SUPPORTING DETAIL — all collapsible
-        # ════════════════════════════════════════════
-        st.markdown("### Supporting detail")
-
-        # Validation issues surfaced by post-processing
-        validation_issues = getattr(final_brief, "_validation_issues", [])
-        if validation_issues:
-            with st.expander(f"Reasoning quality flags — {len(validation_issues)} found", expanded=True):
-                st.caption("These were detected and corrected automatically. Shown for transparency.")
-                for issue in validation_issues:
-                    st.warning(f"· {issue}")
-
-        # Data reviewed
-        with st.expander(f"Data reviewed — {len(verified_facts)} facts used, {len(rejected_facts)} filtered out"):
-            col_pass, col_fail = st.columns(2)
-            with col_pass:
-                st.markdown("**Included**")
-                for vf in verified_facts:
-                    with st.container(border=True):
-                        st.markdown(f"**{vf.category}** — {vf.fact}")
-                        m1, m2 = st.columns(2)
-                        m1.metric("Quality", f"{vf.fact_quality_score}/100")
-                        m2.metric("Confidence", f"{vf.confidence}%")
-            with col_fail:
-                st.markdown("**Filtered out**")
-                if not rejected_facts:
-                    st.caption("All data points passed quality checks.")
-                for rf in rejected_facts:
-                    with st.container(border=True):
-                        st.markdown(f"`{rf['fact']}`")
-                        for r in rf["reasons"]: st.caption(f"· {r}")
-
-        # Traceability issues
-        violations = validate_traceability_chain(final_brief, verified_facts)
-        if violations:
-            with st.expander(f"Theme quality flags ({len(violations)})"):
-                for v in violations: st.warning(f"· {v}")
-
-        # Brand & campaigns
-        if social_signals:
-            with st.expander(f"Brand & campaign activity — {len(social_signals)} signals"):
-                for ss in social_signals:
-                    with st.container(border=True):
-                        st.markdown(f"**{ss.signal_class}** · {ss.platform} · {ss.confidence} confidence")
-                        st.markdown(ss.description)
-                        st.caption(f"Engagement signal: {ss.engagement_indicator}")
-                        st.info(f"What this may mean: {ss.brand_implication}")
-
-        # Strategic moves
-        if initiatives:
-            with st.expander(f"Strategic moves tracked — {len(initiatives)} found"):
-                for init in initiatives:
-                    with st.container(border=True):
-                        st.markdown(f"**{init.initiative_type}** · {init.entity}")
-                        st.markdown(init.description)
-                        st.caption(f"Vs. competitors: {init.competitor_comparison}")
-                        st.info(f"Expected impact: {init.strategic_implication}")
-
-        # Leadership gaps
-        if exec_signals:
-            with st.expander(f"What leadership said vs. what the numbers show — {len(exec_signals)} items"):
-                for es in exec_signals:
-                    gap_icon = {"ALIGNED": "✅", "PARTIAL GAP": "⚠️", "EXECUTION GAP": "🔴"}.get(es.gap_assessment, "·")
-                    with st.container(border=True):
-                        st.markdown(f"{gap_icon} **{es.gap_assessment}** · {es.source_type}")
-                        a, b = st.columns(2)
-                        with a:
-                            st.markdown("**What they said**")
-                            st.markdown(es.stated_priority)
-                        with b:
-                            st.markdown("**What the numbers show**")
-                            st.markdown(es.actual_performance_indicator)
-                        fn = st.warning if es.gap_assessment == "EXECUTION GAP" else st.info
-                        fn(f"Looking ahead: {es.forward_read}")
-
-        # Trends and risks
-        if trend_risks:
-            with st.expander(f"Industry trends and risks — {len(trend_risks)} signals"):
-                for tr in trend_risks:
-                    icon = "🔴" if tr.opportunity_or_threat == "THREAT" else "🟢"
-                    with st.container(border=True):
-                        st.markdown(f"{icon} **{tr.opportunity_or_threat}** · {tr.category} · {tr.time_horizon}")
-                        st.markdown(tr.signal)
-                        fn = st.warning if tr.opportunity_or_threat == "THREAT" else st.info
-                        fn(tr.strategic_implication)
-
-        # ── Download ─────────────────────────────────
+        # Download
         st.divider()
         export_package = {
             "entity_profile":          entity.model_dump(),
@@ -1617,6 +1494,6 @@ if st.button("Run Analysis", type="primary"):
         st.download_button(
             "Download full report (JSON)",
             data=json.dumps(export_package, indent=2, ensure_ascii=False),
-            file_name=f"{company.replace(' ', '_').lower()}_lens.json",
-            mime="application/json",
+            file_name=f"{company.replace(' ', '_').lower()}_analysis.json",
+            mime="application/json"
         )
