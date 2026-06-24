@@ -784,6 +784,8 @@ def evaluate_trust(url: str, company: str = "") -> str:
     for ps_domain in PRIMARY_SOURCE_DOMAINS:
         if ps_domain in domain: return "PRIMARY SOURCE"
     if any(h in domain for h in HIGH_TRUST_DOMAINS):   return "HIGH TRUST"
+    if any(m in domain for m in MEDIUM_TRUST_DOMAINS): return "MEDIUM TRUST"
+    if any(l in domain for l in LOW_TRUST_DOMAINS):    return "LOW TRUST"
     return "MEDIUM TRUST"
 
 def calculate_confidence(trust_label: str, board_relevance: int, strategic_impact: int) -> int:
@@ -1009,6 +1011,24 @@ def run_trend_risk_search(company: str, entity_sector: str) -> str:
     return "\n".join([f"URL: {r.get('href')} DATA: {r.get('title')} - {r.get('body')}" for r in results])
 
 # ==========================================
+# NEW: INVESTMENT MOVE MODEL (Page 4)
+# ==========================================
+
+class InvestmentMove(BaseModel):
+    move_type: str = Field(
+        description="One of: ACQUISITION, INVESTMENT, PARTNERSHIP, FUNDING_ROUND, DIVESTITURE, EXPANSION"
+    )
+    entity_involved: str = Field(description="Who is being acquired/invested in/partnered with")
+    deal_size:   Optional[str] = Field(default=None, description="Deal value if mentioned e.g. $1B")
+    date_signal: str = Field(default="Recent", description="When this happened")
+    headline:    str = Field(description="One sentence describing the move")
+    strategic_why: str = Field(
+        description="Why this move matters strategically — 1-2 sentences, specific not generic"
+    )
+    source_url:  str = Field(default="")
+    source_trust: str = Field(default="MEDIUM TRUST")
+
+# ==========================================
 # 5. DATA STRUCTURE SCHEMAS (PYDANTIC)
 # ==========================================
 
@@ -1023,17 +1043,26 @@ class EntityProfile(BaseModel):
     contamination_warnings: str
 
 class IntelligenceFact(BaseModel):
-    category: str
-    fact: str
-    source_url: str
-    source_trust: str
-    date_signal: str
-    board_relevance: int
+    category:         str
+    fact:             str  # The core data point — keep this short and specific
+    context:          str = Field(
+        default="",
+        description=(
+            "1-2 sentences explaining WHY this fact matters "
+            "and what it means for the company's competitive position. "
+            "Must be specific to this company. Cannot be generic."
+        )
+    )
+    source_url:       str
+    source_trust:     str
+    date_signal:      str = "Undated"
+    board_relevance:  int
     strategic_impact: int
 
 class ValidatedFact(BaseModel):
     category: str
     fact: str
+    context: str = ""  # carries the "why it matters" context through validation
     source_url: str
     source_trust: str
     date_signal: str
