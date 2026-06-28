@@ -23,7 +23,7 @@ st.set_page_config(page_title="Lumen", page_icon="🪶", layout="wide", initial_
 GROQ_KEY = os.getenv("GROQ_KEY") or os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_KEY", "")
 
 # Dual-Model Routing Strategy
-llm_8b  = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.1-8b-instant",   temperature=0.1)
+llm_8b  = ChatGroq(api_key=GROQ_KEY, model_name="openai/gpt-oss-20b",   temperature=0.1)
 llm_70b = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
 
 # ==========================================
