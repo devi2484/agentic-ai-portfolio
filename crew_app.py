@@ -24,7 +24,7 @@ GROQ_KEY = os.getenv("GROQ_KEY") or os.getenv("GROQ_API_KEY") or st.secrets.get(
 
 # Dual-Model Routing Strategy
 llm_8b  = ChatGroq(api_key=GROQ_KEY, model_name="openai/gpt-oss-20b",   temperature=0.1)
-llm_70b = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
+llm_70b = ChatGroq(api_key=GROQ_KEY, model_name="openai/gpt-oss-120b", temperature=0.1)
 
 # ==========================================
 #  CLAUDE-LIKE DESIGN SYSTEM
