@@ -6,7 +6,7 @@ GROQ_KEY = "your_groq_key_here"
 
 llm = ChatGroq(
     api_key=GROQ_KEY,
-    model_name="llama-3.1-8b-instant",
+    model_name="openai/gpt-oss-20b",
     temperature=0.5
 )
 

@@ -14,7 +14,7 @@ load_dotenv()
 GROQ_KEY = os.getenv("GROQ_KEY") or st.secrets.get("GROQ_KEY", "")
 
 # 70b model for strict JSON adherence and deep analytical reasoning
-llm = ChatGroq(api_key=GROQ_KEY, model_name="llama-3.3-70b-versatile", temperature=0.1)
+llm = ChatGroq(api_key=GROQ_KEY, model_name="openai/gpt-oss-120b", temperature=0.1)
 
 st.set_page_config(page_title="Elite Market Intelligence", page_icon="📈", layout="wide")
 st.title("📈 Elite Market Intelligence & Financial Strategist")

@@ -36,7 +36,7 @@ if st.button("Analyse Now", type="primary"):
             st.write("News found. AI extracting signals...")
 
             signals_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="openai/gpt-oss-20b",
                 temperature=0.2,
                 messages=[
                     {"role":"system","content":"Extract the 5 most strategic signals from this news. One sentence each."},
@@ -47,7 +47,7 @@ if st.button("Analyse Now", type="primary"):
             st.write("Signals extracted. Writing report...")
 
             report_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="openai/gpt-oss-20b",
                 temperature=0.4,
                 messages=[
                     {"role":"system","content":"You are a McKinsey analyst. Write a strategic brief with: THREAT LEVEL, KEY INSIGHT, COMPETITIVE IMPLICATIONS, RECOMMENDATIONS, 30-DAY ACTIONS."},

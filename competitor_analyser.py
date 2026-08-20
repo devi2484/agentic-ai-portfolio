@@ -11,7 +11,7 @@ def analyse_competitor(company_name, signals):
         signals_text = signals_text + "- " + signal + "\n"
 
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="openai/gpt-oss-20b",
         temperature=0.3,
         messages=[
             {
